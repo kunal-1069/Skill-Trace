@@ -1,0 +1,215 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: #fafafa;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+::selection {
+  background: #e5e7eb;
+  color: #171717;
+}
+
+.dark {
+  color-scheme: dark;
+}
+
+.dark body,
+.dark html {
+  background: #0a0a0a;
+}
+
+.dark .bg-white {
+  background-color: #171717;
+}
+
+.dark .bg-neutral-50 {
+  background-color: #1f1f1f;
+}
+
+.dark .bg-neutral-100 {
+  background-color: #262626;
+}
+
+.dark .border-neutral-100,
+.dark .border-neutral-200 {
+  border-color: #2f2f2f;
+}
+
+.dark .border-neutral-300 {
+  border-color: #404040;
+}
+
+.dark .text-neutral-950,
+.dark .text-neutral-900,
+.dark .text-neutral-800,
+.dark .text-neutral-700 {
+  color: #f5f5f5;
+}
+
+.dark .text-neutral-600,
+.dark .text-neutral-500 {
+  color: #a3a3a3;
+}
+
+.dark input,
+.dark select,
+.dark textarea {
+  color: #f5f5f5;
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: #737373;
+}
+
+.dark .hover\:bg-neutral-50:hover,
+.dark .hover\:bg-neutral-100:hover {
+  background-color: #262626;
+}
+
+.login-particle {
+  position: absolute;
+  top: -12px;
+  display: block;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.24);
+  animation-name: particle-fall;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+.dark .login-screen .bg-white {
+  background-color: #fff;
+}
+
+.dark .login-screen .text-neutral-950 {
+  color: #0a0a0a;
+}
+
+.login-light {
+  background-color: #fafafa;
+  color: #171717;
+}
+
+.login-light .login-card {
+  border-color: #e5e7eb;
+  background-color: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 24px 60px rgba(23, 23, 23, 0.1);
+}
+
+.login-light .login-theme-button {
+  border-color: #e5e7eb;
+  background-color: #fff;
+  color: #404040;
+}
+
+.login-light .login-theme-button:hover {
+  background-color: #f5f5f5;
+}
+
+.login-light .login-brand-mark {
+  background-color: #171717;
+  color: #fff;
+}
+
+.login-light .text-white,
+.login-light .text-neutral-200,
+.login-light .text-neutral-300 {
+  color: #262626;
+}
+
+.login-light .text-neutral-400,
+.login-light .text-neutral-500 {
+  color: #737373;
+}
+
+.login-light .text-neutral-600 {
+  color: #a3a3a3;
+}
+
+.login-light .border-neutral-700,
+.login-light .border-neutral-800 {
+  border-color: #e5e7eb;
+}
+
+.login-light .bg-neutral-900,
+.login-light .bg-neutral-950 {
+  background-color: #fff;
+}
+
+.login-light .bg-neutral-800 {
+  background-color: #e5e7eb;
+}
+
+.login-light input {
+  border-color: #d4d4d4;
+  background-color: #fff;
+  color: #171717;
+}
+
+.login-light input:focus {
+  border-color: #737373;
+}
+
+.login-light .login-particle {
+  background: rgba(23, 23, 23, 0.38);
+  box-shadow: 0 0 5px rgba(23, 23, 23, 0.12);
+}
+
+@keyframes particle-fall {
+  0% {
+    transform: translate3d(0, -5vh, 0);
+    opacity: 0;
+  }
+  12% {
+    opacity: 0.8;
+  }
+  80% {
+    opacity: 0.45;
+  }
+  100% {
+    transform: translate3d(24px, 110vh, 0);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-particle {
+    animation-play-state: paused;
+  }
+}

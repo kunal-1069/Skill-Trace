@@ -1,0 +1,10 @@
+{
+  "description": "Analyze GitHub repositories against job requirements to identify skill gaps, helping students enhance their coding skills and improve employability.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}

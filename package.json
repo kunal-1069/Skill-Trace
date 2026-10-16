@@ -1,0 +1,16 @@
+{
+  "name": "ai-career-coach",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server.js",
+    "dev": "node --env-file-if-exists=.env --watch server.js",
+    "dev:frontend": "npm --prefix Frontend run dev",
+    "build:frontend": "npm --prefix Frontend run build",
+    "test": "node --env-file-if-exists=.env test.js",
+    "demo": "node --env-file-if-exists=.env demo.js"
+  },
+  "dependencies": {
+    "pdfkit": "^0.15.0"
+  }
+}
