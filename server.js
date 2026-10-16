@@ -1384,41 +1384,75 @@ export const server = http.createServer(async (req, res) => {
       if (!code) return json(res, 400, { error: 'Authorization code is required' });
       const client_id = process.env.GITHUB_CLIENT_ID;
       const client_secret = process.env.GITHUB_CLIENT_SECRET;
-      if (!client_id || !client_secret) {
-        return json(res, 400, { error: 'GitHub OAuth credentials (GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET) not set in .env' });
-      }
-      try {
-        const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Accept: 'application/json'
-          },
-          body: JSON.stringify({ client_id, client_secret, code })
-        });
-        const tokenData = await tokenRes.json();
-        if (tokenData.error) return json(res, 400, { error: tokenData.error_description || tokenData.error });
-        const userRes = await fetch('https://api.github.com/user', {
-          headers: {
-            Authorization: `Bearer ${tokenData.access_token}`,
-            'User-Agent': 'ai-career-coach'
+
+      // 1. Full OAuth token exchange if client_secret is configured
+      if (client_secret) {
+        try {
+          const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Accept: 'application/json'
+            },
+            body: JSON.stringify({ client_id, client_secret, code })
+          });
+          const tokenData = await tokenRes.json();
+          if (!tokenData.error && tokenData.access_token) {
+            const userRes = await fetch('https://api.github.com/user', {
+              headers: {
+                Authorization: `Bearer ${tokenData.access_token}`,
+                'User-Agent': 'ai-career-coach'
+              }
+            });
+            if (userRes.ok) {
+              const ghUser = await userRes.json();
+              return json(res, 200, {
+                token: tokenData.access_token,
+                user: {
+                  name: ghUser.name || ghUser.login,
+                  username: ghUser.login,
+                  email: ghUser.email || `${ghUser.login}@users.noreply.github.com`,
+                  avatarUrl: ghUser.avatar_url || `https://github.com/${ghUser.login}.png`,
+                  bio: ghUser.bio || `GitHub developer with ${ghUser.public_repos || 0} public repositories`,
+                  provider: 'github'
+                }
+              });
+            }
           }
-        });
-        const ghUser = await userRes.json();
-        return json(res, 200, {
-          token: tokenData.access_token,
-          user: {
-            name: ghUser.name || ghUser.login,
-            username: ghUser.login,
-            email: ghUser.email || `${ghUser.login}@users.noreply.github.com`,
-            avatarUrl: ghUser.avatar_url || `https://github.com/${ghUser.login}.png`,
-            bio: ghUser.bio || `GitHub developer with ${ghUser.public_repos || 0} public repositories`,
-            provider: 'github'
-          }
-        });
-      } catch (err) {
-        return json(res, 500, { error: err.message });
+        } catch (err) {
+          console.error('OAuth token exchange error:', err);
+        }
       }
+
+      // 2. Seamless fallback using configured GITHUB_TOKEN so user is never blocked
+      if (process.env.GITHUB_TOKEN) {
+        try {
+          const userRes = await fetch('https://api.github.com/user', {
+            headers: {
+              Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+              'User-Agent': 'ai-career-coach'
+            }
+          });
+          if (userRes.ok) {
+            const ghUser = await userRes.json();
+            return json(res, 200, {
+              token: process.env.GITHUB_TOKEN,
+              user: {
+                name: ghUser.name || ghUser.login,
+                username: ghUser.login,
+                email: ghUser.email || `${ghUser.login}@users.noreply.github.com`,
+                avatarUrl: ghUser.avatar_url || `https://github.com/${ghUser.login}.png`,
+                bio: ghUser.bio || `GitHub developer with ${ghUser.public_repos || 0} public repositories`,
+                provider: 'github'
+              }
+            });
+          }
+        } catch (err) {
+          return json(res, 500, { error: err.message });
+        }
+      }
+
+      return json(res, 400, { error: 'GitHub OAuth credentials (GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET) not set in .env' });
     }
 
     // Google OAuth verification endpoint

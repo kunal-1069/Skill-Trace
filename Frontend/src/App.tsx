@@ -1346,12 +1346,9 @@ function LoginPage({
   }, [onSignIn]);
 
   const handleGithubClick = () => {
-    if (oauthConfig.githubClientId && oauthConfig.hasGithubSecret) {
-      const redirectUri = encodeURIComponent(window.location.origin);
-      window.location.href = `https://github.com/login/oauth/authorize?client_id=${oauthConfig.githubClientId}&scope=read:user,repo&redirect_uri=${redirectUri}`;
-    } else {
-      setActiveModal("github");
-    }
+    const clientId = oauthConfig.githubClientId || "Ov23liUHTE7FZx3g9OOa";
+    const redirectUri = encodeURIComponent(window.location.origin);
+    window.location.href = `https://github.com/login/oauth/authorize?client_id=${clientId}&scope=read:user,repo&redirect_uri=${redirectUri}`;
   };
 
   const handleGoogleClick = () => {
@@ -1614,7 +1611,7 @@ function LoginPage({
 
             <p className="mt-5 text-center text-xs text-neutral-500">
               Want instant portfolio analysis?{" "}
-              <button onClick={() => setActiveModal("github")} className="font-medium text-neutral-300 hover:text-white underline underline-offset-2">
+              <button onClick={handleGithubClick} className="font-medium text-neutral-300 hover:text-white underline underline-offset-2">
                 Connect your GitHub profile
               </button>
             </p>
