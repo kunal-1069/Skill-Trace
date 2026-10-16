@@ -1269,7 +1269,11 @@ function LoginPage({
 
   // Authentication Modals
   const [activeModal, setActiveModal] = useState<"github" | "google" | null>(null);
-  const [oauthConfig, setOauthConfig] = useState<{ githubClientId: string; googleClientId: string }>({ githubClientId: "", googleClientId: "" });
+  const [oauthConfig, setOauthConfig] = useState<{
+    githubClientId: string;
+    googleClientId: string;
+    hasGithubSecret?: boolean;
+  }>({ githubClientId: "", googleClientId: "", hasGithubSecret: false });
 
   // GitHub modal state
   const [ghInput, setGhInput] = useState("Krish-bit-arch");
@@ -1342,7 +1346,7 @@ function LoginPage({
   }, [onSignIn]);
 
   const handleGithubClick = () => {
-    if (oauthConfig.githubClientId) {
+    if (oauthConfig.githubClientId && oauthConfig.hasGithubSecret) {
       const redirectUri = encodeURIComponent(window.location.origin);
       window.location.href = `https://github.com/login/oauth/authorize?client_id=${oauthConfig.githubClientId}&scope=read:user,repo&redirect_uri=${redirectUri}`;
     } else {

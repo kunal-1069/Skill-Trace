@@ -1373,6 +1373,7 @@ export const server = http.createServer(async (req, res) => {
       return json(res, 200, {
         githubClientId: process.env.GITHUB_CLIENT_ID || '',
         googleClientId: process.env.GOOGLE_CLIENT_ID || '',
+        hasGithubSecret: Boolean(process.env.GITHUB_CLIENT_SECRET && process.env.GITHUB_CLIENT_SECRET.trim()),
       });
     }
 
