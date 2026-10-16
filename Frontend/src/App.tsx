@@ -389,6 +389,98 @@ function Header({
   );
 }
 
+export const TARGET_ROLES: string[] = [
+  // Software Engineering & Web Development
+  "Software Engineer",
+  "Software Engineer Intern",
+  "Junior Software Engineer",
+  "Senior Software Engineer",
+  "Staff Software Engineer",
+  "Backend Developer",
+  "Backend Engineer",
+  "Frontend Developer",
+  "Frontend Engineer",
+  "Full Stack Engineer",
+  "Full Stack Developer",
+  "Web Developer",
+  "API Engineer",
+
+  // Artificial Intelligence, Machine Learning & Data
+  "AI Engineer",
+  "AI Engineer Intern",
+  "Machine Learning Engineer",
+  "Generative AI / LLM Engineer",
+  "Deep Learning Engineer",
+  "Computer Vision Engineer",
+  "NLP Engineer",
+  "Data Scientist",
+  "Data Science Intern",
+  "Data Engineer",
+  "Data Analyst",
+  "Business Intelligence (BI) Analyst",
+  "MLOps Engineer",
+  "AI Research Scientist",
+
+  // Cloud, Infrastructure & DevOps
+  "DevOps Engineer",
+  "Cloud Engineer",
+  "Cloud Architect",
+  "Site Reliability Engineer (SRE)",
+  "Platform Engineer",
+  "Infrastructure Engineer",
+  "Kubernetes Administrator",
+  "Database Administrator (DBA)",
+  "Systems Administrator",
+
+  // Mobile App Development
+  "Mobile App Developer",
+  "iOS Developer",
+  "Android Developer",
+  "React Native Developer",
+  "Flutter Developer",
+
+  // Systems, Embedded & Hardware
+  "Systems Software Engineer",
+  "Embedded Systems Engineer",
+  "Firmware Engineer",
+  "IoT Developer",
+  "Rust Systems Developer",
+  "C / C++ Developer",
+
+  // Cybersecurity & Information Security
+  "Cybersecurity Engineer",
+  "Information Security Analyst",
+  "Application Security Engineer (AppSec)",
+  "DevSecOps Engineer",
+  "Penetration Tester / Ethical Hacker",
+  "Security Operations (SOC) Analyst",
+  "Cryptography Engineer",
+
+  // Quality Assurance & Automation
+  "QA Automation Engineer",
+  "SDET (Software Development Engineer in Test)",
+  "QA Test Engineer",
+  "Performance & Load Test Engineer",
+
+  // Game Development & Graphics
+  "Game Developer",
+  "Unity Developer",
+  "Unreal Engine Developer",
+  "3D Graphics Programmer",
+
+  // Blockchain & Web3
+  "Blockchain Developer",
+  "Smart Contract Engineer",
+  "Web3 Full Stack Developer",
+
+  // Architecture & Technical Leadership
+  "Solutions Architect",
+  "Enterprise Architect",
+  "Technical Product Manager",
+  "Engineering Manager",
+  "Developer Relations / DevRel",
+];
+
 function AnalysisForm({
   user,
   onComplete,
@@ -396,16 +488,17 @@ function AnalysisForm({
   onSelectRepo,
 }: {
   user: UserProfile;
-  onComplete: (data?: { handle: string; role: string; report: any; repo: string }) => void;
+  onComplete: (data?: { handle: string; role: string; report: any; repo: string; jobUrl?: string }) => void;
   resetSignal: number;
   onSelectRepo?: (repo: string) => void;
 }) {
   const [handle, setHandle] = useState(user.username || "demo-candidate");
   const [role, setRole] = useState("Backend Developer");
   const [repo, setRepo] = useState("all");
+  const [jobUrl, setJobUrl] = useState("");
   const [repos, setRepos] = useState<Array<{ name: string; language: string; description?: string }>>([]);
   const [loadingRepos, setLoadingRepos] = useState(false);
-  const [errors, setErrors] = useState<{ handle?: string; role?: string }>({});
+  const [errors, setErrors] = useState<{ handle?: string; role?: string; jobUrl?: string }>({});
   const [loading, setLoading] = useState(false);
   const [statusMsg, setStatusMsg] = useState("");
   const [success, setSuccess] = useState(false);
@@ -451,6 +544,7 @@ function AnalysisForm({
       setHandle(user.username || "demo-candidate");
       setRole("Backend Developer");
       setRepo("all");
+      setJobUrl("");
       setErrors({});
       setSuccess(false);
       setStatusMsg("");
@@ -460,16 +554,17 @@ function AnalysisForm({
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    const next: { handle?: string; role?: string } = {};
+    const next: { handle?: string; role?: string; jobUrl?: string } = {};
     if (!handle.trim()) next.handle = "GitHub handle is required.";
     else if (!/^[a-z\d](?:[a-z\d-]{0,37}[a-z\d])?$/i.test(handle.trim())) next.handle = "Enter a valid GitHub username.";
     if (!role.trim()) next.role = "Target role is required.";
+    if (jobUrl.trim() && !/^https?:\/\//i.test(jobUrl.trim())) next.jobUrl = "Job URL must start with http:// or https://";
     setErrors(next);
     setSuccess(false);
     if (Object.keys(next).length) return;
 
     setLoading(true);
-    setStatusMsg("Submitting portfolio audit to backend...");
+    setStatusMsg(jobUrl.trim() ? "Scraping target job URL with Bright Data & analyzing repositories..." : "Submitting portfolio audit to backend...");
 
     try {
       const postRes = await fetch("/analyze", {
@@ -478,12 +573,13 @@ function AnalysisForm({
         body: JSON.stringify({
           github_username: handle.trim(),
           target_role: role.trim(),
+          job_url: jobUrl.trim(),
           changedRepos: repo && repo !== "all" ? [repo] : [],
         }),
       });
       if (!postRes.ok) throw new Error("Backend rejected request");
 
-      setStatusMsg("Scanning repositories & market job requirements...");
+      setStatusMsg(jobUrl.trim() ? "Extracting requirements from Bright Data scrape & auditing GitHub..." : "Scanning repositories & market job requirements...");
 
       let attempts = 0;
       const interval = setInterval(async () => {
@@ -496,7 +592,7 @@ function AnalysisForm({
             setLoading(false);
             setSuccess(true);
             setStatusMsg(`Analysis complete! Found ${report.summary?.total || report.skills?.length || 0} skills.`);
-            onComplete({ handle: handle.trim(), role: role.trim(), report, repo });
+            onComplete({ handle: handle.trim(), role: role.trim(), report, repo, jobUrl: jobUrl.trim() });
           } else if (attempts >= 25) {
             clearInterval(interval);
             setLoading(false);
@@ -525,7 +621,7 @@ function AnalysisForm({
       <div className="mb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
         <div>
           <h2 className="text-base font-semibold text-neutral-950 dark:text-white">Analysis Configuration</h2>
-          <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Choose candidate repository and the role to evaluate against.</p>
+          <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Choose candidate repository, target role, or paste a live job URL to scrape.</p>
         </div>
         {loadingRepos && (
           <span className="inline-flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
@@ -556,21 +652,43 @@ function AnalysisForm({
                 list="roles-list"
                 value={role}
                 onChange={(event) => setRole(event.target.value)}
-                placeholder="e.g. Backend Developer"
+                placeholder="Select or type any target role..."
                 className={`h-10 w-full rounded-lg border bg-white dark:bg-neutral-950 px-3 text-sm text-neutral-900 dark:text-white outline-none transition placeholder:text-neutral-400 focus:ring-2 focus:ring-neutral-200 dark:focus:ring-neutral-800 ${
                   errors.role ? "border-red-400" : "border-neutral-300 dark:border-neutral-700 focus:border-neutral-500"
                 }`}
               />
               <datalist id="roles-list">
-                <option value="Backend Developer" />
-                <option value="Full Stack Engineer" />
-                <option value="Frontend Developer" />
-                <option value="Machine Learning Engineer" />
-                <option value="DevOps / Cloud Engineer" />
-                <option value="Software Engineer Intern" />
+                {TARGET_ROLES.map((r) => (
+                  <option key={r} value={r} />
+                ))}
               </datalist>
             </div>
             {errors.role && <span className="mt-1.5 flex items-center gap-1 text-xs text-red-600 dark:text-red-400"><AlertCircle size={12} />{errors.role}</span>}
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-neutral-500">
+              <span className="text-[10px] font-medium text-neutral-400">Quick:</span>
+              {[
+                { label: "AI Engineer", value: "AI Engineer" },
+                { label: "Full Stack", value: "Full Stack Engineer" },
+                { label: "Backend", value: "Backend Developer" },
+                { label: "Frontend", value: "Frontend Developer" },
+                { label: "DevOps", value: "DevOps Engineer" },
+                { label: "Intern", value: "Software Engineer Intern" },
+                { label: "Security", value: "Cybersecurity Engineer" },
+              ].map(({ label, value }) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => setRole(value)}
+                  className={`rounded px-1.5 py-0.5 text-[10px] transition ${
+                    role === value
+                      ? "bg-neutral-900 text-white dark:bg-white dark:text-neutral-950 font-semibold"
+                      : "bg-neutral-100 hover:bg-neutral-200 text-neutral-600 dark:bg-neutral-800 dark:hover:bg-neutral-700 dark:text-neutral-300"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </label>
           <label className="block">
             <span className="mb-1.5 flex items-center justify-between text-xs font-medium text-neutral-700 dark:text-neutral-300">
@@ -596,6 +714,45 @@ function AnalysisForm({
           <Button type="submit" disabled={loading} className="mt-0 w-full xl:mt-[26px] xl:w-auto">
             {loading ? <><LoaderCircle size={16} className="animate-spin" /> Analyzing…</> : <><Play size={15} /> Run Analysis</>}
           </Button>
+        </div>
+
+        {/* Live Job Posting URL for Bright Data Online Scraping */}
+        <div className="mt-3.5 pt-3.5 border-t border-neutral-200/80 dark:border-neutral-800">
+          <label className="block">
+            <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+              <span className="text-xs font-medium text-neutral-700 dark:text-neutral-300 flex items-center gap-1.5">
+                <span>Job Posting URL</span>
+                <span className="text-[11px] text-neutral-400">(Paste any live job vacancy link to scrape online)</span>
+              </span>
+              <span className="inline-flex items-center gap-1 rounded bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300 border border-amber-500/20">
+                <Sparkles size={11} className="text-amber-500" /> Bright Data Scraping API Active
+              </span>
+            </div>
+            <div className="relative">
+              <input
+                type="url"
+                value={jobUrl}
+                onChange={(event) => setJobUrl(event.target.value)}
+                placeholder="e.g. https://www.linkedin.com/jobs/view/... or Greenhouse, Lever, Indeed link"
+                className={`h-10 w-full rounded-lg border bg-white dark:bg-neutral-950 px-3 pr-28 text-sm text-neutral-900 dark:text-white outline-none transition placeholder:text-neutral-400 focus:ring-2 focus:ring-neutral-200 dark:focus:ring-neutral-800 ${
+                  errors.jobUrl ? "border-red-400" : "border-neutral-300 dark:border-neutral-700 focus:border-neutral-500"
+                }`}
+              />
+              {jobUrl.trim() && (
+                <span className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded bg-neutral-100 dark:bg-neutral-800 px-2 py-0.5 text-[10px] font-medium text-neutral-600 dark:text-neutral-300">
+                  Ready to scrape
+                </span>
+              )}
+            </div>
+            {errors.jobUrl && (
+              <span className="mt-1.5 flex items-center gap-1 text-xs text-red-600 dark:text-red-400">
+                <AlertCircle size={12} />{errors.jobUrl}
+              </span>
+            )}
+            <p className="mt-1 text-[11px] text-neutral-500 dark:text-neutral-400">
+              Bright Data Web Unlocker scrapes this URL in real-time to extract job title, hiring company, and skill requirements.
+            </p>
+          </label>
         </div>
         {statusMsg && (
           <div className={`mt-4 flex items-center gap-2 rounded-lg border px-3 py-2.5 text-xs ${
@@ -739,7 +896,7 @@ function EvidencePanel({
               </div>
               <span className="shrink-0 rounded-full bg-green-50 dark:bg-green-950/50 px-2 py-1 text-[10px] font-bold tracking-wide text-green-700 dark:text-green-300">MATCH VERIFIED</span>
             </div>
-            <pre className="flex-1 overflow-x-auto rounded-lg bg-neutral-950 p-4 font-mono text-xs leading-6 text-neutral-300">
+            <pre className="flex-1 max-h-[380px] overflow-auto rounded-lg bg-neutral-950 p-4 font-mono text-xs leading-6 text-neutral-300">
               <code>{requirement.code}</code>
             </pre>
             <p className="mt-4 text-sm leading-6 text-neutral-600 dark:text-neutral-400 whitespace-pre-line">{requirement.explanation}</p>
@@ -953,7 +1110,7 @@ function Dialog({
           {kind === "evidence" ? (
             <>
               <div className="mb-3 flex items-center gap-2 text-sm font-medium text-neutral-800 dark:text-neutral-200"><FileCode2 size={16} />{requirement.file || "No source path"}</div>
-              <pre className="overflow-x-auto rounded-lg bg-neutral-950 p-4 text-xs leading-6 text-neutral-300"><code>{requirement.code || "// No code snippet in scope"}</code></pre>
+              <pre className="max-h-[60vh] overflow-auto rounded-lg bg-neutral-950 p-4 font-mono text-xs leading-6 text-neutral-300"><code>{requirement.code || "// No code snippet in scope"}</code></pre>
               <p className="mt-4 text-sm leading-6 text-neutral-600 dark:text-neutral-400 whitespace-pre-line">{requirement.explanation}</p>
             </>
           ) : kind === "signout" ? (
@@ -1645,21 +1802,33 @@ export default function App() {
 
   const requirements = useMemo<Requirement[]>(() => {
     if (liveReport && liveReport.skills && liveReport.skills.length > 0) {
-      return liveReport.skills.map((s: any) => ({
-        name: s.skill,
-        level: (s.job_count || 0) >= 4 ? "Mandatory" : "Preferred",
-        status:
-          s.status === "demonstrated"
-            ? "Demonstrated"
-            : s.status === "partial"
-              ? "Partial"
-              : "Not Demonstrated",
-        file: s.evidence?.[0] ? `${s.evidence[0].repo}/${s.evidence[0].path} (L${s.evidence[0].line})` : undefined,
-        code: s.evidence?.[0]?.snippet || undefined,
-        explanation: `${s.rationale || "Evaluated against public repositories."}`,
-        jobCount: s.job_count,
-        gapAdvice: s.gap_advice,
-      }));
+      return liveReport.skills.map((s: any) => {
+        const evList = s.evidence || [];
+        const codeBlocks = evList
+          .map((e: any, idx: number) => {
+            const codeContent = e.full_code || e.snippet || '';
+            const header = evList.length > 1 ? `// Evidence ${idx + 1}: ${e.repo}/${e.path} (Line ${e.line})\n` : '';
+            return header + codeContent;
+          })
+          .filter(Boolean);
+        const codeDisplay = codeBlocks.length > 0 ? codeBlocks.join('\n\n// ==========================================\n\n') : undefined;
+
+        return {
+          name: s.skill,
+          level: (s.job_count || 0) >= 4 ? "Mandatory" : "Preferred",
+          status:
+            s.status === "demonstrated"
+              ? "Demonstrated"
+              : s.status === "partial"
+                ? "Partial"
+                : "Not Demonstrated",
+          file: evList[0] ? `${evList[0].repo}/${evList[0].path} (L${evList[0].line})` : undefined,
+          code: codeDisplay,
+          explanation: `${s.rationale || "Evaluated against public repositories."}`,
+          jobCount: s.job_count,
+          gapAdvice: s.gap_advice,
+        };
+      });
     }
 
     return baseRequirements.map((item) =>
