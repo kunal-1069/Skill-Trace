@@ -186,9 +186,19 @@ try {
   const userNoParam = await fetch(`${baseUrl}/api/user`);
   assert.strictEqual(userNoParam.status, 400);
 
-  // Test GET /api/repos validation
-  const reposNoParam = await fetch(`${baseUrl}/api/repos`);
-  assert.strictEqual(reposNoParam.status, 400);
+  // Test GET /api/auth/config
+  const authConfRes = await fetch(`${baseUrl}/api/auth/config`);
+  assert.strictEqual(authConfRes.status, 200);
+  const authConf = await authConfRes.json();
+  assert('githubClientId' in authConf && 'googleClientId' in authConf, 'Auth config should return public client IDs');
+
+  // Test POST /api/auth/github validation
+  const ghAuthNoCode = await fetch(`${baseUrl}/api/auth/github`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+  assert.strictEqual(ghAuthNoCode.status, 400);
+
+  // Test POST /api/auth/google validation
+  const googleAuthNoToken = await fetch(`${baseUrl}/api/auth/google`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+  assert.strictEqual(googleAuthNoToken.status, 400);
 
   console.log('✓ All HTTP Server endpoints verified successfully.');
 } finally {

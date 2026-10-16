@@ -1361,6 +1361,92 @@ export const server = http.createServer(async (req, res) => {
       });
     }
 
+    // GitHub OAuth token exchange endpoint
+    if (req.method === 'POST' && url.pathname === '/api/auth/github') {
+      const b = await readBody(req);
+      const code = b.code;
+      if (!code) return json(res, 400, { error: 'Authorization code is required' });
+      const client_id = process.env.GITHUB_CLIENT_ID;
+      const client_secret = process.env.GITHUB_CLIENT_SECRET;
+      if (!client_id || !client_secret) {
+        return json(res, 400, { error: 'GitHub OAuth credentials (GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET) not set in .env' });
+      }
+      try {
+        const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json'
+          },
+          body: JSON.stringify({ client_id, client_secret, code })
+        });
+        const tokenData = await tokenRes.json();
+        if (tokenData.error) return json(res, 400, { error: tokenData.error_description || tokenData.error });
+        const userRes = await fetch('https://api.github.com/user', {
+          headers: {
+            Authorization: `Bearer ${tokenData.access_token}`,
+            'User-Agent': 'ai-career-coach'
+          }
+        });
+        const ghUser = await userRes.json();
+        return json(res, 200, {
+          token: tokenData.access_token,
+          user: {
+            name: ghUser.name || ghUser.login,
+            username: ghUser.login,
+            email: ghUser.email || `${ghUser.login}@users.noreply.github.com`,
+            avatarUrl: ghUser.avatar_url || `https://github.com/${ghUser.login}.png`,
+            bio: ghUser.bio || `GitHub developer with ${ghUser.public_repos || 0} public repositories`,
+            provider: 'github'
+          }
+        });
+      } catch (err) {
+        return json(res, 500, { error: err.message });
+      }
+    }
+
+    // Google OAuth verification endpoint
+    if (req.method === 'POST' && url.pathname === '/api/auth/google') {
+      const b = await readBody(req);
+      const token = b.access_token || b.credential || b.token;
+      if (!token) return json(res, 400, { error: 'Google credential token is required' });
+      try {
+        const gRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (gRes.ok) {
+          const gUser = await gRes.json();
+          return json(res, 200, {
+            user: {
+              name: gUser.name || gUser.email.split('@')[0],
+              username: gUser.email.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, ''),
+              email: gUser.email,
+              avatarUrl: gUser.picture || `https://avatar.vercel.sh/${encodeURIComponent(gUser.email)}`,
+              bio: `Google authenticated developer`,
+              provider: 'google'
+            }
+          });
+        }
+        const idRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(token)}`);
+        if (idRes.ok) {
+          const idData = await idRes.json();
+          return json(res, 200, {
+            user: {
+              name: idData.name || idData.email.split('@')[0],
+              username: idData.email.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, ''),
+              email: idData.email,
+              avatarUrl: idData.picture || `https://avatar.vercel.sh/${encodeURIComponent(idData.email)}`,
+              bio: `Google authenticated developer`,
+              provider: 'google'
+            }
+          });
+        }
+        return json(res, 401, { error: 'Invalid Google credential token' });
+      } catch (e) {
+        return json(res, 500, { error: e.message });
+      }
+    }
+
     // API endpoint to fetch GitHub user profile
     // API endpoint to fetch GitHub user profile
     if (req.method === 'GET' && url.pathname === '/api/user') {

@@ -1265,21 +1265,99 @@ function LoginPage({
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState<"email" | null>(null);
+  const [loading, setLoading] = useState<"email" | "oauth" | null>(null);
 
   // Authentication Modals
   const [activeModal, setActiveModal] = useState<"github" | "google" | null>(null);
+  const [oauthConfig, setOauthConfig] = useState<{ githubClientId: string; googleClientId: string }>({ githubClientId: "", googleClientId: "" });
 
   // GitHub modal state
-  const [ghInput, setGhInput] = useState("kunalchavan");
+  const [ghInput, setGhInput] = useState("Krish-bit-arch");
   const [ghLoading, setGhLoading] = useState(false);
   const [ghError, setGhError] = useState("");
 
   // Google modal state
-  const [googleName, setGoogleName] = useState("Kunal Chavan");
-  const [googleEmail, setGoogleEmail] = useState("kunal.chavan@gmail.com");
-  const [googleGh, setGoogleGh] = useState("kunalchavan");
+  const [googleName, setGoogleName] = useState("Krish");
+  const [googleEmail, setGoogleEmail] = useState("krish@gmail.com");
+  const [googleGh, setGoogleGh] = useState("Krish-bit-arch");
   const [googleLoading, setGoogleLoading] = useState(false);
+
+  // Fetch OAuth public config on mount
+  useEffect(() => {
+    fetch("/api/auth/config")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d) setOauthConfig(d);
+      })
+      .catch(() => {});
+  }, []);
+
+  // Handle OAuth code/token callbacks on mount
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const code = urlParams.get("code");
+    if (code) {
+      setLoading("oauth");
+      fetch("/api/auth/github", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.user) {
+            onSignIn(data.user);
+            window.history.replaceState({}, document.title, window.location.pathname);
+          } else if (data.error) {
+            setError(`GitHub authentication failed: ${data.error}`);
+          }
+        })
+        .catch((err) => setError(`GitHub login error: ${err.message}`))
+        .finally(() => setLoading(null));
+    }
+
+    if (window.location.hash.includes("access_token=")) {
+      const hashParams = new URLSearchParams(window.location.hash.substring(1));
+      const access_token = hashParams.get("access_token");
+      if (access_token) {
+        setLoading("oauth");
+        fetch("/api/auth/google", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ access_token }),
+        })
+          .then((res) => res.json())
+          .then((data) => {
+            if (data.user) {
+              onSignIn(data.user);
+              window.history.replaceState({}, document.title, window.location.pathname);
+            } else if (data.error) {
+              setError(`Google authentication failed: ${data.error}`);
+            }
+          })
+          .catch((err) => setError(`Google login error: ${err.message}`))
+          .finally(() => setLoading(null));
+      }
+    }
+  }, [onSignIn]);
+
+  const handleGithubClick = () => {
+    if (oauthConfig.githubClientId) {
+      const redirectUri = encodeURIComponent(window.location.origin);
+      window.location.href = `https://github.com/login/oauth/authorize?client_id=${oauthConfig.githubClientId}&scope=read:user,repo&redirect_uri=${redirectUri}`;
+    } else {
+      setActiveModal("github");
+    }
+  };
+
+  const handleGoogleClick = () => {
+    if (oauthConfig.googleClientId) {
+      const redirectUri = encodeURIComponent(window.location.origin);
+      window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${oauthConfig.googleClientId}&redirect_uri=${redirectUri}&response_type=token&scope=openid%20email%20profile`;
+    } else {
+      setActiveModal("google");
+    }
+  };
 
   const connectWithGithub = async (usernameToConnect: string) => {
     const handle = usernameToConnect.trim();
@@ -1452,16 +1530,18 @@ function LoginPage({
             <div className="grid grid-cols-2 gap-3">
               <button
                 type="button"
-                onClick={() => setActiveModal("google")}
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-neutral-700 bg-neutral-900 text-sm font-medium text-neutral-200 transition hover:border-neutral-500 hover:bg-neutral-800"
+                onClick={handleGoogleClick}
+                disabled={loading === "oauth"}
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-neutral-700 bg-neutral-900 text-sm font-medium text-neutral-200 transition hover:border-neutral-500 hover:bg-neutral-800 disabled:opacity-60"
               >
                 <span className="flex size-4 items-center justify-center rounded-full bg-white text-[11px] font-bold text-neutral-950">G</span>
                 Google
               </button>
               <button
                 type="button"
-                onClick={() => setActiveModal("github")}
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-neutral-700 bg-neutral-900 text-sm font-medium text-neutral-200 transition hover:border-neutral-500 hover:bg-neutral-800"
+                onClick={handleGithubClick}
+                disabled={loading === "oauth"}
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-neutral-700 bg-neutral-900 text-sm font-medium text-neutral-200 transition hover:border-neutral-500 hover:bg-neutral-800 disabled:opacity-60"
               >
                 <Code2 size={16} />
                 GitHub
@@ -1574,9 +1654,9 @@ function LoginPage({
             </div>
 
             <div className="mb-5">
-              <p className="text-xs font-medium text-neutral-400 mb-2">Quick connect suggestions:</p>
+              <p className="text-xs font-medium text-neutral-400 mb-2">Quick connect verified profiles:</p>
               <div className="flex flex-wrap gap-2">
-                {["kunalchavan", "octocat", "torvalds", "shadcn", "facebook"].map((name) => (
+                {["Krish-bit-arch", "kunal-1069", "octocat", "torvalds", "shadcn"].map((name) => (
                   <button
                     key={name}
                     type="button"
@@ -1635,7 +1715,22 @@ function LoginPage({
             <div className="mb-4 space-y-2">
               <button
                 type="button"
-                onClick={() => connectWithGoogle("Kunal Chavan", "kunal.chavan@gmail.com", "kunalchavan")}
+                onClick={() => connectWithGoogle("Krish", "krish@gmail.com", "Krish-bit-arch")}
+                className="flex w-full items-center gap-3 rounded-xl border border-neutral-700 bg-neutral-800/60 p-3 text-left transition hover:border-neutral-500 hover:bg-neutral-800"
+              >
+                <span className="flex size-10 items-center justify-center rounded-full bg-indigo-600 text-sm font-bold text-white">
+                  K
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-white truncate">Krish</p>
+                  <p className="text-xs text-neutral-400 truncate">krish@gmail.com · @Krish-bit-arch</p>
+                </div>
+                <Check size={16} className="text-neutral-500" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => connectWithGoogle("Kunal Chavan", "kunal.chavan@gmail.com", "kunal-1069")}
                 className="flex w-full items-center gap-3 rounded-xl border border-neutral-700 bg-neutral-800/60 p-3 text-left transition hover:border-neutral-500 hover:bg-neutral-800"
               >
                 <span className="flex size-10 items-center justify-center rounded-full bg-blue-600 text-sm font-bold text-white">
@@ -1643,7 +1738,7 @@ function LoginPage({
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-white truncate">Kunal Chavan</p>
-                  <p className="text-xs text-neutral-400 truncate">kunal.chavan@gmail.com · @kunalchavan</p>
+                  <p className="text-xs text-neutral-400 truncate">kunal.chavan@gmail.com · @kunal-1069</p>
                 </div>
                 <Check size={16} className="text-neutral-500" />
               </button>
