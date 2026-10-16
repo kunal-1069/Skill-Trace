@@ -1305,28 +1305,43 @@ export const server = http.createServer(async (req, res) => {
     // Serve production Frontend build if available
     const distPath = path.resolve('Frontend/dist');
     if (fs.existsSync(distPath)) {
-      if (req.method === 'GET' && url.pathname === '/') {
-        const indexPath = path.join(distPath, 'index.html');
-        if (fs.existsSync(indexPath)) {
-          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-          return fs.createReadStream(indexPath).pipe(res);
+      if (req.method === 'GET') {
+        const filePath = path.join(distPath, url.pathname);
+        if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+          const ext = path.extname(filePath).toLowerCase();
+          const mimeTypes = {
+            '.html': 'text/html; charset=utf-8',
+            '.js': 'application/javascript',
+            '.css': 'text/css',
+            '.svg': 'image/svg+xml',
+            '.png': 'image/png',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.webp': 'image/webp',
+            '.ico': 'image/x-icon',
+            '.json': 'application/json',
+            '.txt': 'text/plain',
+            '.woff': 'font/woff',
+            '.woff2': 'font/woff2'
+          };
+          res.writeHead(200, { 'Content-Type': mimeTypes[ext] || 'application/octet-stream' });
+          return fs.createReadStream(filePath).pipe(res);
         }
-      }
 
-      const filePath = path.join(distPath, url.pathname);
-      if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
-        const ext = path.extname(filePath).toLowerCase();
-        const mimeTypes = {
-          '.html': 'text/html; charset=utf-8',
-          '.js': 'application/javascript',
-          '.css': 'text/css',
-          '.svg': 'image/svg+xml',
-          '.png': 'image/png',
-          '.json': 'application/json',
-          '.txt': 'text/plain'
-        };
-        res.writeHead(200, { 'Content-Type': mimeTypes[ext] || 'application/octet-stream' });
-        return fs.createReadStream(filePath).pipe(res);
+        // SPA fallback for frontend client-side routes
+        const isBackendRoute =
+          url.pathname.startsWith('/api/') ||
+          url.pathname === '/analyze' ||
+          url.pathname === '/report' ||
+          url.pathname === '/github-push';
+
+        if (!isBackendRoute) {
+          const indexPath = path.join(distPath, 'index.html');
+          if (fs.existsSync(indexPath)) {
+            res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+            return fs.createReadStream(indexPath).pipe(res);
+          }
+        }
       }
     }
 

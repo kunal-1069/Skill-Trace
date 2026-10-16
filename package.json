@@ -3,12 +3,13 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "start": "node --env-file-if-exists=.env server.js",
-    "dev": "node --env-file-if-exists=.env --watch server.js",
+    "build": "npm --prefix Frontend install && npm --prefix Frontend run build",
+    "start": "node server.js",
+    "dev": "node --watch server.js",
     "dev:frontend": "npm --prefix Frontend run dev",
     "build:frontend": "npm --prefix Frontend run build",
-    "test": "node --env-file-if-exists=.env test.js",
-    "demo": "node --env-file-if-exists=.env demo.js"
+    "test": "node test.js",
+    "demo": "node demo.js"
   },
   "dependencies": {
     "pdfkit": "^0.15.0"
