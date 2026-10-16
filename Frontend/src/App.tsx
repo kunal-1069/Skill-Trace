@@ -1347,8 +1347,8 @@ function LoginPage({
 
   const handleGithubClick = () => {
     const clientId = oauthConfig.githubClientId || "Ov23liUHTE7FZx3g9OOa";
-    const redirectUri = encodeURIComponent(window.location.origin);
-    window.location.href = `https://github.com/login/oauth/authorize?client_id=${clientId}&scope=read:user,repo&redirect_uri=${redirectUri}`;
+    // Omit redirect_uri so GitHub uses the exact Authorization callback URL saved in your OAuth App
+    window.location.href = `https://github.com/login/oauth/authorize?client_id=${clientId}&scope=read:user,repo`;
   };
 
   const handleGoogleClick = () => {
