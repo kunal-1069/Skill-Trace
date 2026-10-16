@@ -203,6 +203,21 @@ updatedReport.loop.forEach((l) => {
   console.log(`  * ${l.skill.padEnd(10)}: ${l.before} -> ${l.after} (Cites: ${l.cited.join(', ')})`);
 });
 
+// Step 4.5: Room to Grow (Resume Updates, Career Research, Learning Recommendations)
+console.log('\n[Step 4.5: Room to Grow - Career AI Intelligence]');
+if (updatedReport.resume_updates && updatedReport.resume_updates.length) {
+  console.log('-> Evidence-Backed Resume Bullets Generated:');
+  updatedReport.resume_updates.slice(0, 2).forEach((r) => {
+    console.log(`   • [${r.skill}] ${r.bullet}`);
+    console.log(`     (Citation: ${r.citation})`);
+  });
+}
+if (updatedReport.career_research) {
+  console.log('\n-> Career Research Insights:');
+  console.log(`   * Role: ${updatedReport.career_research.target_role}`);
+  console.log(`   * Top In-Demand Skills: ${updatedReport.career_research.skills_in_demand.slice(0, 3).map((s) => `${s.skill} (${s.frequency_pct}%)`).join(', ')}`);
+}
+
 // Step 5: Generate Demo PDF File
 console.log('\n[Step 5: Exporting Demo PDF Report]');
 const pdfPath = path.resolve('data/demo-assessment-report.pdf');

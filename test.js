@@ -7,6 +7,7 @@ import {
   norm,
   strip,
   discoverRequirements,
+  scrapeJobUrl,
   heuristic,
   judge,
   buildReport,
@@ -49,12 +50,16 @@ const fallbackJudgeRes = await judge('Backend Developer', 'Full assessment', [{ 
 assert(['demonstrated', 'partial'].includes(fallbackJudgeRes[0].status), 'Judge should return valid status');
 console.log(`✓ Judge evaluation passed with status: ${fallbackJudgeRes[0].status}`);
 
-// Test 4: Job discovery logic
-console.log('\nTest 4: discoverRequirements live / fallback');
+// Test 4: Job discovery logic & Bright Data Job URL Scraping
+console.log('\nTest 4: discoverRequirements live / fallback & scrapeJobUrl');
 const reqs = await discoverRequirements('Software Engineer Intern');
 assert(Array.isArray(reqs.skills), 'Skills should be an array');
 assert(reqs.skills.length > 0, 'Should discover at least one skill requirement');
 console.log(`✓ Job requirements discovered: ${reqs.skills.length} skills (e.g. ${reqs.skills.slice(0, 3).map(s => s.skill).join(', ')})`);
+
+const invalidScraped = await scrapeJobUrl('');
+assert.strictEqual(invalidScraped, null, 'Empty URL should return null');
+console.log('✓ Bright Data scrapeJobUrl handles empty inputs safely.');
 
 // Test 5: Reassessment loop & report builder
 console.log('\nTest 5: Build report and reassessment diffing');
