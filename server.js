@@ -911,6 +911,14 @@ export const server = http.createServer(async (req, res) => {
       return json(res, 200, { history });
     }
 
+    // Public OAuth Configuration (Client IDs only, never secrets)
+    if (req.method === 'GET' && url.pathname === '/api/auth/config') {
+      return json(res, 200, {
+        githubClientId: process.env.GITHUB_CLIENT_ID || '',
+        googleClientId: process.env.GOOGLE_CLIENT_ID || '',
+      });
+    }
+
     // API endpoint to fetch GitHub user profile
     if (req.method === 'GET' && url.pathname === '/api/user') {
       const user = url.searchParams.get('github_username') || '';
