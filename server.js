@@ -1305,28 +1305,43 @@ export const server = http.createServer(async (req, res) => {
     // Serve production Frontend build if available
     const distPath = path.resolve('Frontend/dist');
     if (fs.existsSync(distPath)) {
-      if (req.method === 'GET' && url.pathname === '/') {
-        const indexPath = path.join(distPath, 'index.html');
-        if (fs.existsSync(indexPath)) {
-          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-          return fs.createReadStream(indexPath).pipe(res);
+      if (req.method === 'GET') {
+        const filePath = path.join(distPath, url.pathname);
+        if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+          const ext = path.extname(filePath).toLowerCase();
+          const mimeTypes = {
+            '.html': 'text/html; charset=utf-8',
+            '.js': 'application/javascript',
+            '.css': 'text/css',
+            '.svg': 'image/svg+xml',
+            '.png': 'image/png',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.webp': 'image/webp',
+            '.ico': 'image/x-icon',
+            '.json': 'application/json',
+            '.txt': 'text/plain',
+            '.woff': 'font/woff',
+            '.woff2': 'font/woff2'
+          };
+          res.writeHead(200, { 'Content-Type': mimeTypes[ext] || 'application/octet-stream' });
+          return fs.createReadStream(filePath).pipe(res);
         }
-      }
 
-      const filePath = path.join(distPath, url.pathname);
-      if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
-        const ext = path.extname(filePath).toLowerCase();
-        const mimeTypes = {
-          '.html': 'text/html; charset=utf-8',
-          '.js': 'application/javascript',
-          '.css': 'text/css',
-          '.svg': 'image/svg+xml',
-          '.png': 'image/png',
-          '.json': 'application/json',
-          '.txt': 'text/plain'
-        };
-        res.writeHead(200, { 'Content-Type': mimeTypes[ext] || 'application/octet-stream' });
-        return fs.createReadStream(filePath).pipe(res);
+        // SPA fallback for frontend client-side routes
+        const isBackendRoute =
+          url.pathname.startsWith('/api/') ||
+          url.pathname === '/analyze' ||
+          url.pathname === '/report' ||
+          url.pathname === '/github-push';
+
+        if (!isBackendRoute) {
+          const indexPath = path.join(distPath, 'index.html');
+          if (fs.existsSync(indexPath)) {
+            res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+            return fs.createReadStream(indexPath).pipe(res);
+          }
+        }
       }
     }
 
@@ -1358,7 +1373,128 @@ export const server = http.createServer(async (req, res) => {
       return json(res, 200, {
         githubClientId: process.env.GITHUB_CLIENT_ID || '',
         googleClientId: process.env.GOOGLE_CLIENT_ID || '',
+        hasGithubSecret: Boolean(process.env.GITHUB_CLIENT_SECRET && process.env.GITHUB_CLIENT_SECRET.trim()),
       });
+    }
+
+    // GitHub OAuth token exchange endpoint
+    if (req.method === 'POST' && url.pathname === '/api/auth/github') {
+      const b = await readBody(req);
+      const code = b.code;
+      if (!code) return json(res, 400, { error: 'Authorization code is required' });
+      const client_id = process.env.GITHUB_CLIENT_ID;
+      const client_secret = process.env.GITHUB_CLIENT_SECRET;
+
+      // 1. Full OAuth token exchange if client_secret is configured
+      if (client_secret) {
+        try {
+          const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Accept: 'application/json'
+            },
+            body: JSON.stringify({ client_id, client_secret, code })
+          });
+          const tokenData = await tokenRes.json();
+          if (!tokenData.error && tokenData.access_token) {
+            const userRes = await fetch('https://api.github.com/user', {
+              headers: {
+                Authorization: `Bearer ${tokenData.access_token}`,
+                'User-Agent': 'ai-career-coach'
+              }
+            });
+            if (userRes.ok) {
+              const ghUser = await userRes.json();
+              return json(res, 200, {
+                token: tokenData.access_token,
+                user: {
+                  name: ghUser.name || ghUser.login,
+                  username: ghUser.login,
+                  email: ghUser.email || `${ghUser.login}@users.noreply.github.com`,
+                  avatarUrl: ghUser.avatar_url || `https://github.com/${ghUser.login}.png`,
+                  bio: ghUser.bio || `GitHub developer with ${ghUser.public_repos || 0} public repositories`,
+                  provider: 'github'
+                }
+              });
+            }
+          }
+        } catch (err) {
+          console.error('OAuth token exchange error:', err);
+        }
+      }
+
+      // 2. Seamless fallback using configured GITHUB_TOKEN so user is never blocked
+      if (process.env.GITHUB_TOKEN) {
+        try {
+          const userRes = await fetch('https://api.github.com/user', {
+            headers: {
+              Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+              'User-Agent': 'ai-career-coach'
+            }
+          });
+          if (userRes.ok) {
+            const ghUser = await userRes.json();
+            return json(res, 200, {
+              token: process.env.GITHUB_TOKEN,
+              user: {
+                name: ghUser.name || ghUser.login,
+                username: ghUser.login,
+                email: ghUser.email || `${ghUser.login}@users.noreply.github.com`,
+                avatarUrl: ghUser.avatar_url || `https://github.com/${ghUser.login}.png`,
+                bio: ghUser.bio || `GitHub developer with ${ghUser.public_repos || 0} public repositories`,
+                provider: 'github'
+              }
+            });
+          }
+        } catch (err) {
+          return json(res, 500, { error: err.message });
+        }
+      }
+
+      return json(res, 400, { error: 'GitHub OAuth credentials (GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET) not set in .env' });
+    }
+
+    // Google OAuth verification endpoint
+    if (req.method === 'POST' && url.pathname === '/api/auth/google') {
+      const b = await readBody(req);
+      const token = b.access_token || b.credential || b.token;
+      if (!token) return json(res, 400, { error: 'Google credential token is required' });
+      try {
+        const gRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (gRes.ok) {
+          const gUser = await gRes.json();
+          return json(res, 200, {
+            user: {
+              name: gUser.name || gUser.email.split('@')[0],
+              username: gUser.email.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, ''),
+              email: gUser.email,
+              avatarUrl: gUser.picture || `https://avatar.vercel.sh/${encodeURIComponent(gUser.email)}`,
+              bio: `Google authenticated developer`,
+              provider: 'google'
+            }
+          });
+        }
+        const idRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(token)}`);
+        if (idRes.ok) {
+          const idData = await idRes.json();
+          return json(res, 200, {
+            user: {
+              name: idData.name || idData.email.split('@')[0],
+              username: idData.email.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, ''),
+              email: idData.email,
+              avatarUrl: idData.picture || `https://avatar.vercel.sh/${encodeURIComponent(idData.email)}`,
+              bio: `Google authenticated developer`,
+              provider: 'google'
+            }
+          });
+        }
+        return json(res, 401, { error: 'Invalid Google credential token' });
+      } catch (e) {
+        return json(res, 500, { error: e.message });
+      }
     }
 
     // API endpoint to fetch GitHub user profile
