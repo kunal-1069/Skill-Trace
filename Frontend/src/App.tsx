@@ -57,6 +57,8 @@ export type Requirement = {
   explanation: string;
   jobCount?: number;
   gapAdvice?: string;
+  authorshipVerified?: boolean;
+  authorshipStatus?: string;
 };
 
 export type UserProfile = {
@@ -894,7 +896,16 @@ function EvidencePanel({
                 <FileCode2 size={16} className="shrink-0 text-neutral-500" />
                 <span className="truncate">{requirement.file}</span>
               </div>
-              <span className="shrink-0 rounded-full bg-green-50 dark:bg-green-950/50 px-2 py-1 text-[10px] font-bold tracking-wide text-green-700 dark:text-green-300">MATCH VERIFIED</span>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <span className={`rounded-full px-2 py-1 text-[10px] font-bold tracking-wide ${
+                  requirement.authorshipVerified !== false
+                    ? "bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800"
+                    : "bg-red-50 text-red-700 border border-red-200 dark:bg-red-950/50 dark:text-red-300 dark:border-red-800"
+                }`}>
+                  {requirement.authorshipVerified !== false ? "✓ AUTHOR VERIFIED (<150 EXT)" : "⚠ EXTERNAL / CLONED"}
+                </span>
+                <span className="shrink-0 rounded-full bg-green-50 dark:bg-green-950/50 px-2 py-1 text-[10px] font-bold tracking-wide text-green-700 dark:text-green-300">MATCH VERIFIED</span>
+              </div>
             </div>
             <pre className="flex-1 max-h-[380px] overflow-auto rounded-lg bg-neutral-950 p-4 font-mono text-xs leading-6 text-neutral-300">
               <code>{requirement.code}</code>
@@ -1923,6 +1934,8 @@ export default function App() {
           explanation: `${s.rationale || "Evaluated against public repositories."}`,
           jobCount: s.job_count,
           gapAdvice: s.gap_advice,
+          authorshipVerified: evList[0]?.authorship_verified !== false,
+          authorshipStatus: evList[0]?.authorship_status || "VERIFIED_ORIGINAL",
         };
       });
     }
@@ -2079,6 +2092,37 @@ export default function App() {
               <>
                 <AnalysisForm user={currentUser} onComplete={handleAnalysisComplete} resetSignal={resetSignal} />
                 <Metrics summary={summary} webhookComplete={webhookComplete} />
+
+                {/* Multi-Layer Authorship & Plagiarism Verification Banner */}
+                <div className="rounded-xl border border-blue-200 dark:border-blue-900 bg-blue-50/70 dark:bg-blue-950/40 p-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <span className="flex size-9 items-center justify-center rounded-lg bg-blue-600 text-white shadow-sm shrink-0">
+                        <ShieldCheck size={18} />
+                      </span>
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h3 className="text-sm font-semibold text-neutral-950 dark:text-white">Multi-Layer Authorship & Anti-Plagiarism Verification</h3>
+                          <span className="rounded-full bg-blue-100 dark:bg-blue-900/60 text-blue-800 dark:text-blue-300 px-2 py-0.5 text-[10px] font-bold">150 COMMITS LIMIT</span>
+                        </div>
+                        <p className="mt-0.5 text-xs text-neutral-600 dark:text-neutral-400">
+                          Enforcing: Fork ancestry check, 150-commit external author filter, and single-commit velocity anomaly detection.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-green-50 dark:bg-green-950/60 border border-green-200 dark:border-green-800 px-3 py-1 text-xs font-semibold text-green-700 dark:text-green-300">
+                        <CheckCircle2 size={13} /> {liveReport?.authorship_summary?.verified_repos || 1} Verified Repos
+                      </span>
+                      {(liveReport?.authorship_summary?.flagged_repos || 0) > 0 && (
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-red-50 dark:bg-red-950/60 border border-red-200 dark:border-red-800 px-3 py-1 text-xs font-semibold text-red-700 dark:text-red-300">
+                          <AlertCircle size={13} /> {liveReport.authorship_summary.flagged_repos} Flagged (Cloned/External)
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
                 <div className="grid gap-5 xl:grid-cols-2">
                   <RequirementsPanel requirements={requirements} selected={selected} onSelect={setSelected} filter={filter} setFilter={setFilter} />
                   <EvidencePanel

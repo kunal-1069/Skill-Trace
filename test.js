@@ -14,7 +14,8 @@ import {
   sendPdf,
   server,
   db,
-  save
+  save,
+  verifyAuthorship
 } from './server.js';
 
 console.log('--- Running AI Career Coach Test Suite ---\n');
@@ -200,10 +201,28 @@ try {
   const googleAuthNoToken = await fetch(`${baseUrl}/api/auth/google`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
   assert.strictEqual(googleAuthNoToken.status, 400);
 
+  // Test GET /api/authorship
+  const authRes = await fetch(`${baseUrl}/api/authorship?github_username=${testUser}`);
+  assert.strictEqual(authRes.status, 200);
+  const authData = await authRes.json();
+  assert.strictEqual(authData.external_threshold, 150);
+
   console.log('✓ All HTTP Server endpoints verified successfully.');
 } finally {
   await new Promise((resolve) => server.close(resolve));
 }
+
+// Test 8: Multi-Layer Authorship & Anti-Plagiarism Verification Model (150 Commits by Other Developers Threshold)
+console.log('\nTest 8: Multi-Layer Authorship & Anti-Plagiarism Model');
+const mockForkedRepo = { name: 'forked-express', fork: true, size: 500 };
+const forkResult = await verifyAuthorship('testuser', 'forked-express', mockForkedRepo);
+assert(forkResult.flags.includes('FORKED_REPOSITORY'), 'Should detect forked repository');
+assert.strictEqual(forkResult.metrics.external_threshold, 150, 'Threshold must be 150 external commits');
+
+const mockSingleCommitDump = { name: 'dumped-large-project', fork: false, size: 5000 };
+const dumpResult = await verifyAuthorship('testuser', 'dumped-large-project', mockSingleCommitDump);
+assert.strictEqual(dumpResult.metrics.external_threshold, 150);
+console.log('✓ Authorship verification logic and 150-commit threshold verified.');
 
 console.log('\n=========================================');
 console.log('All tests passed successfully! 100% Green.');

@@ -46,11 +46,12 @@ const DB_FILE = 'data/db.json';
 
 // ---------- storage ----------
 fs.mkdirSync('data', { recursive: true });
-export let db = { profiles: {}, repoState: {}, assessments: [] };
+export let db = { profiles: {}, repoState: {}, assessments: [], authorshipState: {} };
 if (fs.existsSync(DB_FILE)) {
   try {
     const raw = fs.readFileSync(DB_FILE, 'utf8').trim();
     if (raw) db = JSON.parse(raw);
+    db.authorshipState = db.authorshipState || {};
   } catch (e) {
     console.warn('Warning: Failed to parse db.json, starting with fresh data:', e.message);
   }
@@ -487,6 +488,128 @@ const VIRTUAL_REPOS = {
   }
 };
 
+// ---------- Multi-Layer Authorship & Anti-Plagiarism Verification Model ----------
+export async function verifyAuthorship(owner, repoName, repoMeta = null) {
+  const u = String(owner || '').trim().toLowerCase();
+  const repo = repoMeta || await gh(`/repos/${owner}/${repoName}`);
+  const EXTERNAL_COMMITS_THRESHOLD = 150;
+
+  if (!repo) {
+    return {
+      repo: repoName,
+      verified: false,
+      score: 0,
+      status: 'UNVERIFIED',
+      flags: ['REPO_NOT_FOUND'],
+      reason: 'Repository metadata could not be retrieved from GitHub.',
+      metrics: { candidate_commits: 0, external_commits: 0, external_threshold: EXTERNAL_COMMITS_THRESHOLD }
+    };
+  }
+
+  const flags = [];
+  let score = 100;
+  let candidateCommits = 0;
+  let externalCommits = 0;
+  const isFork = Boolean(repo.fork);
+  let isSingleCommitDump = false;
+
+  // --- Layer 1: GitHub Fork & Upstream Check ---
+  if (isFork) {
+    score -= 40;
+    flags.push('FORKED_REPOSITORY');
+  }
+
+  // --- Layer 2: Git Author Attribution Filter (150 Commits by Other Developers Threshold) ---
+  const userCommitsData = await gh(`/repos/${owner}/${repoName}/commits?author=${encodeURIComponent(owner)}&per_page=100`);
+  candidateCommits = Array.isArray(userCommitsData) ? userCommitsData.length : 0;
+
+  const generalCommitsData = await gh(`/repos/${owner}/${repoName}/commits?per_page=100`);
+  const generalList = Array.isArray(generalCommitsData) ? generalCommitsData : [];
+
+  let nonCandidateInSample = 0;
+  for (const c of generalList) {
+    const authorLogin = (c.author?.login || c.commit?.author?.name || '').toLowerCase();
+    const committerLogin = (c.committer?.login || c.commit?.committer?.name || '').toLowerCase();
+    if (authorLogin && authorLogin !== u && committerLogin !== u) {
+      nonCandidateInSample++;
+    }
+  }
+
+  const contributors = await gh(`/repos/${owner}/${repoName}/contributors?per_page=30`);
+  if (Array.isArray(contributors) && contributors.length > 0) {
+    for (const contrib of contributors) {
+      const login = (contrib.login || '').toLowerCase();
+      if (login !== u) {
+        externalCommits += (contrib.contributions || 0);
+      } else {
+        candidateCommits = Math.max(candidateCommits, contrib.contributions || 0);
+      }
+    }
+  } else {
+    externalCommits = nonCandidateInSample;
+  }
+
+  // Threshold check: > 150 commits by other developers
+  if (externalCommits > EXTERNAL_COMMITS_THRESHOLD) {
+    const total = candidateCommits + externalCommits;
+    const candidateRatio = total > 0 ? (candidateCommits / total) : 0;
+    if (candidateRatio < 0.25 || candidateCommits < 10) {
+      score -= 60;
+      flags.push('EXCESSIVE_EXTERNAL_COMMITS');
+    } else {
+      score -= 20;
+      flags.push('HIGH_EXTERNAL_COLLABORATION');
+    }
+  } else if (candidateCommits === 0 && generalList.length > 0) {
+    score -= 60;
+    flags.push('ZERO_CANDIDATE_COMMITS');
+  }
+
+  // --- Layer 3: Temporal Anomaly & Single-Commit Dump Heuristic ---
+  if (generalList.length === 1 && (repo.size || 0) > 1500) {
+    isSingleCommitDump = true;
+    score -= 50;
+    flags.push('SINGLE_COMMIT_DUMP');
+  }
+
+  score = Math.max(0, Math.min(100, score));
+  const verified = score >= 50 && !flags.includes('EXCESSIVE_EXTERNAL_COMMITS') && !flags.includes('ZERO_CANDIDATE_COMMITS');
+
+  let status = 'VERIFIED_ORIGINAL';
+  let reason = 'Authorship verified: Organic development history with candidate commit activity.';
+
+  if (flags.includes('EXCESSIVE_EXTERNAL_COMMITS')) {
+    status = 'COPIED_OR_UPSTREAM';
+    reason = `Flagged: Found ${externalCommits} commits authored by other developers (exceeds ${EXTERNAL_COMMITS_THRESHOLD} limit) with low candidate contribution.`;
+  } else if (flags.includes('ZERO_CANDIDATE_COMMITS')) {
+    status = 'UNATTRIBUTED_COMMITS';
+    reason = `Flagged: 0 commits authored by @${owner} found in repository commit history.`;
+  } else if (flags.includes('SINGLE_COMMIT_DUMP')) {
+    status = 'SUSPICIOUS_DUMP';
+    reason = `Flagged: Large codebase (${repo.size || 0} KB) imported in a single initial commit without organic development history.`;
+  } else if (flags.includes('FORKED_REPOSITORY')) {
+    status = 'FORKED_PROJECT';
+    reason = 'Repository is a fork of an upstream project. Evaluating only candidate-specific additions.';
+  }
+
+  return {
+    repo: repoName,
+    verified,
+    score,
+    status,
+    flags,
+    reason,
+    metrics: {
+      candidate_commits: candidateCommits,
+      external_commits: externalCommits,
+      external_threshold: EXTERNAL_COMMITS_THRESHOLD,
+      is_fork: isFork,
+      is_dump: isSingleCommitDump,
+      repo_size_kb: repo.size || 0
+    }
+  };
+}
+
 export function latestRows(user, role) {
   const rows = db.assessments.filter((a) => a.github_username?.toLowerCase() === user.toLowerCase() && a.target_role === role);
   const last = rows.reduce((m, r) => (r.assessed_at > m ? r.assessed_at : m), '');
@@ -512,7 +635,17 @@ export async function analyze({ user, role, trigger = 'dashboard', changedRepos 
     ? allRepos.filter((r) => changedRepos.includes(r.name))
     : allRepos.filter((r) => !r.fork).slice(0, 6);
 
-  console.log(`[Analyze] Mode: ${incremental ? 'Incremental' : 'Full'}. Scanning ${selected.length} repos: ${selected.map((r) => r.name).join(', ') || 'none'}`);
+  console.log(`[Analyze] Mode: ${incremental ? 'Incremental' : 'Full'}. Auditing authorship on ${selected.length} repos: ${selected.map((r) => r.name).join(', ') || 'none'}`);
+
+  // Run Multi-Layer Authorship Verification Model
+  const authorshipAudits = [];
+  for (const r of selected) {
+    const audit = await verifyAuthorship(user, r.name, r);
+    authorshipAudits.push(audit);
+    console.log(`[Authorship Audit] ${r.name}: ${audit.status} (Verified: ${audit.verified}, Score: ${audit.score}/100) - ${audit.reason}`);
+  }
+  db.authorshipState = db.authorshipState || {};
+  db.authorshipState[u] = authorshipAudits;
 
   const ev = {};
   skills.forEach((s) => (ev[s.skill] = []));
@@ -524,6 +657,9 @@ export async function analyze({ user, role, trigger = 'dashboard', changedRepos 
     if (!tree || !Array.isArray(tree.tree)) continue;
 
     analysed.push(r.name);
+    const repoAudit = authorshipAudits.find((a) => a.repo === r.name);
+    const isVerified = repoAudit ? repoAudit.verified : true;
+
     const prevShas = db.repoState[`${u}/${r.name}`]?.shas || {};
     const hasPrev = Object.keys(prevShas).length > 0;
     const shas = {};
@@ -566,13 +702,35 @@ export async function analyze({ user, role, trigger = 'dashboard', changedRepos 
         const list = ev[sk.skill];
         if (!list || list.length >= 8) continue;
         if ((sk.exts || []).some((e) => lp.endsWith(e))) {
-          list.push({ repo: r.name, path: c.path, line: 1, kind: 'path', snippet: extractCodeBlock(0), url, changed: c.changed, full_code: fullCode });
+          list.push({
+            repo: r.name,
+            path: c.path,
+            line: 1,
+            kind: 'path',
+            snippet: extractCodeBlock(0),
+            url,
+            changed: c.changed,
+            full_code: fullCode,
+            authorship_verified: isVerified,
+            authorship_status: repoAudit ? repoAudit.status : 'VERIFIED_ORIGINAL'
+          });
         }
         let found = 0;
         for (let i = 0; i < lines.length && found < 2 && list.length < 8; i++) {
           if (lines[i].length > 400) continue;
           if (sk.terms.map(norm).some((t) => norm(lines[i]).includes(t))) {
-            list.push({ repo: r.name, path: c.path, line: i + 1, kind: 'code', snippet: extractCodeBlock(i), url: `${url}#L${i + 1}`, changed: c.changed, full_code: fullCode });
+            list.push({
+              repo: r.name,
+              path: c.path,
+              line: i + 1,
+              kind: 'code',
+              snippet: extractCodeBlock(i),
+              url: `${url}#L${i + 1}`,
+              changed: c.changed,
+              full_code: fullCode,
+              authorship_verified: isVerified,
+              authorship_status: repoAudit ? repoAudit.status : 'VERIFIED_ORIGINAL'
+            });
             found++;
           }
         }
@@ -686,7 +844,18 @@ export async function analyze({ user, role, trigger = 'dashboard', changedRepos 
       status,
       confidence,
       rationale,
-      evidence: evidence.map(({ repo, path, line, kind, snippet, url, carried, full_code }) => ({ repo, path, line, kind, snippet, url, carried: !!carried, full_code: full_code || snippet })),
+      evidence: evidence.map(({ repo, path, line, kind, snippet, url, carried, full_code, authorship_verified, authorship_status }) => ({
+        repo,
+        path,
+        line,
+        kind,
+        snippet,
+        url,
+        carried: !!carried,
+        full_code: full_code || snippet,
+        authorship_verified: authorship_verified !== false,
+        authorship_status: authorship_status || 'VERIFIED_ORIGINAL'
+      })),
       job_sources: s.jobs || [],
       job_count: s.job_count || 0,
       previous_status: prev?.status || '',
@@ -852,6 +1021,14 @@ export function buildReport(user, requestedRole = '') {
     });
 
   const prof = db.profiles[user.toLowerCase()];
+  const audits = (db.authorshipState && db.authorshipState[u]) || [];
+  const authorshipSummary = {
+    audited_repos: audits.length,
+    verified_repos: audits.filter((a) => a.verified).length,
+    flagged_repos: audits.filter((a) => !a.verified).length,
+    external_threshold: 150,
+    audits
+  };
   return {
     github_username: user,
     target_role: targetRole,
@@ -868,6 +1045,7 @@ export function buildReport(user, requestedRole = '') {
       partial: skills.filter((s) => s.status === 'partial').length,
       not_demonstrated: skills.filter((s) => s.status === 'not_demonstrated').length
     },
+    authorship_summary: authorshipSummary,
     skills,
     loop,
     timeline: roleBatches.slice().reverse().slice(0, 10).map((b) => ({
@@ -904,6 +1082,14 @@ export function sendPdf(res, rep) {
   d.font('Helvetica-Bold').fontSize(12).text(
     `${rep.summary.demonstrated} demonstrated, ${rep.summary.partial} partial, ${rep.summary.not_demonstrated} not demonstrated of ${rep.summary.total} skills requested by real job postings.`
   ).font('Helvetica');
+
+  if (rep.authorship_summary && Array.isArray(rep.authorship_summary.audits) && rep.authorship_summary.audits.length) {
+    d.moveDown(0.8).fontSize(13).font('Helvetica-Bold').text('Multi-Layer Authorship & Plagiarism Audit').font('Helvetica');
+    d.fontSize(9).text('Integrity Check: 150 external commits limit, fork verification, and single-commit dump heuristic.');
+    rep.authorship_summary.audits.forEach((a) => {
+      d.fontSize(9).text(`* ${a.repo}: ${a.status} (${a.verified ? 'VERIFIED' : 'FLAGGED'} - Score: ${a.score}/100) - ${a.reason}`);
+    });
+  }
 
   if (rep.loop && rep.loop.length) {
     d.moveDown().fontSize(13).font('Helvetica-Bold').text('What changed since first assessment').font('Helvetica');
@@ -1497,7 +1683,21 @@ export const server = http.createServer(async (req, res) => {
       }
     }
 
-    // API endpoint to fetch GitHub user profile
+    // API endpoint for Multi-Layer Authorship & Anti-Plagiarism Audit
+    if (req.method === 'GET' && url.pathname === '/api/authorship') {
+      const user = url.searchParams.get('github_username') || '';
+      if (!user) return json(res, 400, { error: 'github_username parameter is required' });
+      const u = user.toLowerCase();
+      const audits = (db.authorshipState && db.authorshipState[u]) || [];
+      return json(res, 200, {
+        github_username: user,
+        external_threshold: 150,
+        audited_repos: audits.length,
+        verified_repos: audits.filter((a) => a.verified).length,
+        flagged_repos: audits.filter((a) => !a.verified).length,
+        audits
+      });
+    }
     // API endpoint to fetch GitHub user profile
     if (req.method === 'GET' && url.pathname === '/api/user') {
       const user = cleanGithubUsername(url.searchParams.get('github_username') || '');
