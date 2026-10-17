@@ -15,7 +15,11 @@ import {
   server,
   db,
   save,
-  verifyAuthorship
+  verifyAuthorship,
+  createJwt,
+  verifyJwt,
+  generateInterviewQuestion,
+  evaluateInterviewAnswer
 } from './server.js';
 
 console.log('--- Running AI Career Coach Test Suite ---\n');
@@ -201,6 +205,32 @@ try {
   const googleAuthNoToken = await fetch(`${baseUrl}/api/auth/google`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
   assert.strictEqual(googleAuthNoToken.status, 400);
 
+  // Test POST /api/auth/session (issues signed JWT)
+  const sessionRes = await fetch(`${baseUrl}/api/auth/session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: 'kunalchavan', email: 'kunal@example.com', name: 'Kunal Chavan', provider: 'github' })
+  });
+  assert.strictEqual(sessionRes.status, 200);
+  const sessionData = await sessionRes.json();
+  assert(sessionData.token && sessionData.jwt, 'Session response must contain JWT token');
+  assert.strictEqual(sessionData.user.username, 'kunalchavan');
+
+  // Test GET /api/auth/me with valid Bearer JWT
+  const meRes = await fetch(`${baseUrl}/api/auth/me`, {
+    headers: { Authorization: `Bearer ${sessionData.token}` }
+  });
+  assert.strictEqual(meRes.status, 200);
+  const meData = await meRes.json();
+  assert.strictEqual(meData.valid, true);
+  assert.strictEqual(meData.user.username, 'kunalchavan');
+
+  // Test GET /api/auth/me with invalid / missing token
+  const meBadRes = await fetch(`${baseUrl}/api/auth/me`, {
+    headers: { Authorization: 'Bearer invalid.tampered.token' }
+  });
+  assert.strictEqual(meBadRes.status, 401);
+
   // Test GET /api/authorship
   const authRes = await fetch(`${baseUrl}/api/authorship?github_username=${testUser}`);
   assert.strictEqual(authRes.status, 200);
@@ -223,6 +253,54 @@ const mockSingleCommitDump = { name: 'dumped-large-project', fork: false, size: 
 const dumpResult = await verifyAuthorship('testuser', 'dumped-large-project', mockSingleCommitDump);
 assert.strictEqual(dumpResult.metrics.external_threshold, 150);
 console.log('✓ Authorship verification logic and 150-commit threshold verified.');
+
+// Test 9: JWT Authentication & Session Persistence Security
+console.log('\nTest 9: JWT Authentication & Session Persistence Lifecycle');
+const testPayload = { user: { username: 'testcandidate', email: 'test@example.com' } };
+const validJwt = createJwt(testPayload, 3600);
+assert(typeof validJwt === 'string' && validJwt.split('.').length === 3, 'JWT must be standard 3-segment string');
+
+const verified = verifyJwt(validJwt);
+assert.strictEqual(verified.user.username, 'testcandidate', 'JWT payload username must match');
+assert(verified.exp > Math.floor(Date.now() / 1000), 'JWT expiration must be future timestamp');
+
+// Verify tampering rejection
+const tamperedJwt = validJwt.slice(0, -5) + 'abcde';
+assert.strictEqual(verifyJwt(tamperedJwt), null, 'Tampered JWT must be rejected');
+
+// Verify expired token rejection
+const expiredJwt = createJwt(testPayload, -10); // expired 10 seconds ago
+assert.strictEqual(verifyJwt(expiredJwt), null, 'Expired JWT must be rejected');
+console.log('✓ JWT token signing, verification, and expiration security verified.');
+
+// Test 10: "Interview Me on My Code" (Personalized Mock Technical Interviewer)
+console.log('\nTest 10: Interview Me on My Code (Personalized Technical Code Defense)');
+const drillQuestion = await generateInterviewQuestion({
+  skill: 'PostgreSQL',
+  repo: 'api-backend',
+  path: 'db/schema.sql',
+  line: 12,
+  snippet: 'CREATE TABLE projects ( id UUID PRIMARY KEY, owner_id UUID NOT NULL );',
+  role: 'Backend Developer'
+});
+assert(drillQuestion && drillQuestion.question, 'Drill question must be generated');
+assert(drillQuestion.focus_area, 'Drill must include a focus area');
+assert(Array.isArray(drillQuestion.key_concepts) && drillQuestion.key_concepts.length > 0, 'Must include key concepts');
+console.log(`  ✓ Generated Question: "${drillQuestion.question.slice(0, 80)}..."`);
+console.log(`  ✓ Focus Area: ${drillQuestion.focus_area}`);
+
+const drillEvaluation = await evaluateInterviewAnswer({
+  question: drillQuestion.question,
+  snippet: 'CREATE TABLE projects ( id UUID PRIMARY KEY, owner_id UUID NOT NULL );',
+  answer: 'I chose UUID primary keys to prevent ID enumeration attacks and allow client-side distributed ID generation without lock contention. In PostgreSQL, random UUIDs can cause B-tree index fragmentation, which can be mitigated with time-ordered UUIDv7.',
+  skill: 'PostgreSQL',
+  role: 'Backend Developer'
+});
+assert(drillEvaluation && typeof drillEvaluation.score === 'number', 'Evaluation must return a numerical score');
+assert(drillEvaluation.verdict, 'Evaluation must include a hiring verdict');
+assert(drillEvaluation.model_answer, 'Evaluation must provide a senior model answer');
+console.log(`  ✓ Candidate Evaluated: Score ${drillEvaluation.score}/100 (${drillEvaluation.verdict})`);
+console.log('✓ "Interview Me on My Code" technical drill and evaluation verified.');
 
 console.log('\n=========================================');
 console.log('All tests passed successfully! 100% Green.');

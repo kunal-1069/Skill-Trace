@@ -864,11 +864,13 @@ function EvidencePanel({
   onView,
   onDownload,
   reportStatus,
+  onStartInterview,
 }: {
   requirement: Requirement;
   onView: () => void;
   onDownload: () => void;
   reportStatus: "idle" | "generating" | "done";
+  onStartInterview?: (req: Requirement) => void;
 }) {
   const hasEvidence = Boolean(requirement.file);
   return (
@@ -917,9 +919,20 @@ function EvidencePanel({
                 {requirement.gapAdvice}
               </div>
             )}
-            <Button variant="secondary" onClick={onView} className="mt-4 self-start">
-              <FileCode2 size={15} /> Expand Code View
-            </Button>
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <Button variant="secondary" onClick={onView}>
+                <FileCode2 size={15} /> Expand Code View
+              </Button>
+              {onStartInterview && (
+                <Button
+                  variant="primary"
+                  onClick={() => onStartInterview(requirement)}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm flex items-center gap-1.5"
+                >
+                  <Sparkles size={15} /> Interview Me on This Code
+                </Button>
+              )}
+            </div>
           </>
         ) : (
           <div className="flex flex-1 flex-col items-center justify-center py-12 text-center">
@@ -932,10 +945,353 @@ function EvidencePanel({
                 {requirement.gapAdvice}
               </div>
             )}
+            {onStartInterview && (
+              <Button
+                variant="secondary"
+                onClick={() => onStartInterview(requirement)}
+                className="mt-4 flex items-center gap-1.5 text-xs text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800"
+              >
+                <Sparkles size={14} /> Practice {requirement.name} Interview Drill
+              </Button>
+            )}
           </div>
         )}
       </div>
     </Panel>
+  );
+}
+
+function InterviewDrillModal({
+  isOpen,
+  onClose,
+  requirement,
+  targetRole,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  requirement: Requirement | null;
+  targetRole: string;
+}) {
+  const [loadingQuestion, setLoadingQuestion] = useState(false);
+  const [questionData, setQuestionData] = useState<{
+    question: string;
+    focus_area: string;
+    key_concepts?: string[];
+    hint?: string;
+  } | null>(null);
+  const [answer, setAnswer] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [evaluation, setEvaluation] = useState<{
+    score: number;
+    verdict: string;
+    strengths: string[];
+    improvements: string[];
+    model_answer: string;
+  } | null>(null);
+  const [showHint, setShowHint] = useState(false);
+  const [error, setError] = useState("");
+
+  const fetchQuestion = (req: Requirement) => {
+    setLoadingQuestion(true);
+    setEvaluation(null);
+    setAnswer("");
+    setError("");
+    setShowHint(false);
+
+    fetch("/api/interview/question", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        skill: req.name,
+        repo: req.file ? req.file.split("/")[0] : "repository",
+        path: req.file || "source.js",
+        snippet: req.code || "",
+        role: targetRole,
+      }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data && data.question) {
+          setQuestionData(data);
+        } else {
+          setError("Could not generate interview question.");
+        }
+      })
+      .catch((err) => {
+        setError(`Failed to generate question: ${err.message}`);
+      })
+      .finally(() => setLoadingQuestion(false));
+  };
+
+  useEffect(() => {
+    if (isOpen && requirement) {
+      fetchQuestion(requirement);
+    }
+  }, [isOpen, requirement]);
+
+  if (!isOpen || !requirement) return null;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!answer.trim() || answer.trim().length < 15) {
+      setError("Please write at least a couple of sentences explaining your architectural choices.");
+      return;
+    }
+    setError("");
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/interview/evaluate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question: questionData?.question || "",
+          snippet: requirement.code || "",
+          answer: answer.trim(),
+          skill: requirement.name,
+          role: targetRole,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setEvaluation(data);
+      } else {
+        setError("Evaluation failed. Please try again.");
+      }
+    } catch (err: any) {
+      setError(err.message || "Network error");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[90] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-2xl flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-neutral-200 dark:border-neutral-800 px-6 py-4">
+          <div className="flex items-center gap-2.5">
+            <span className="flex size-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-400">
+              <Sparkles size={18} />
+            </span>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-bold text-neutral-950 dark:text-white">Technical Code Defense Drill</h2>
+                <span className="rounded-full bg-indigo-100 dark:bg-indigo-950/80 px-2 py-0.5 text-[10px] font-bold text-indigo-700 dark:text-indigo-300">
+                  AI CAREER COACH
+                </span>
+              </div>
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                Interrogating design decisions for <strong className="text-neutral-900 dark:text-neutral-200">{requirement.name}</strong> ({targetRole})
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            aria-label="Close drill"
+            className="rounded-lg p-2 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="p-6 space-y-5 flex-1">
+          {/* Code Context Box */}
+          {requirement.code && (
+            <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-950 p-3.5 text-xs font-mono text-neutral-300">
+              <div className="mb-2 flex items-center justify-between text-[11px] text-neutral-400">
+                <span className="flex items-center gap-1.5 font-medium">
+                  <FileCode2 size={13} /> {requirement.file || "Source Code"}
+                </span>
+                <span className="text-[10px] uppercase tracking-wider text-neutral-500">Candidate Code Snippet</span>
+              </div>
+              <pre className="max-h-36 overflow-auto font-mono text-xs leading-5 text-neutral-200">
+                <code>{requirement.code}</code>
+              </pre>
+            </div>
+          )}
+
+          {/* Loading Question State */}
+          {loadingQuestion && (
+            <div className="flex flex-col items-center justify-center py-10 text-center">
+              <LoaderCircle size={28} className="animate-spin text-indigo-600 dark:text-indigo-400 mb-3" />
+              <p className="text-sm font-medium text-neutral-900 dark:text-white">Staff Engineer Reviewing Your Code…</p>
+              <p className="text-xs text-neutral-500 mt-1">Formulating an architectural defense question based on your implementation.</p>
+            </div>
+          )}
+
+          {/* Question Display */}
+          {!loadingQuestion && questionData && (
+            <div className="rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/50 dark:bg-indigo-950/20 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="rounded-md bg-indigo-100 dark:bg-indigo-900/60 px-2 py-0.5 text-[11px] font-semibold text-indigo-800 dark:text-indigo-300">
+                  Focus: {questionData.focus_area}
+                </span>
+                {questionData.hint && (
+                  <button
+                    type="button"
+                    onClick={() => setShowHint((h) => !h)}
+                    className="text-[11px] font-medium text-indigo-600 dark:text-indigo-400 hover:underline"
+                  >
+                    {showHint ? "Hide Hint" : "💡 Need a hint?"}
+                  </button>
+                )}
+              </div>
+
+              <p className="text-sm font-semibold leading-relaxed text-neutral-900 dark:text-neutral-100">
+                "{questionData.question}"
+              </p>
+
+              {showHint && questionData.hint && (
+                <div className="rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 p-2.5 text-xs text-amber-800 dark:text-amber-300">
+                  <span className="font-semibold">Interviewer Hint: </span>{questionData.hint}
+                </div>
+              )}
+
+              {questionData.key_concepts && questionData.key_concepts.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                  <span className="text-[10px] text-neutral-500 uppercase font-semibold">Key Concepts:</span>
+                  {questionData.key_concepts.map((c, i) => (
+                    <span
+                      key={i}
+                      className="rounded bg-white/80 dark:bg-neutral-800 px-1.5 py-0.5 text-[10px] font-mono text-neutral-700 dark:text-neutral-300 border border-neutral-200 dark:border-neutral-700"
+                    >
+                      {c}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Evaluation Results Card */}
+          {evaluation && (
+            <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-950/50 p-4 space-y-4">
+              <div className="flex items-center justify-between border-b border-neutral-200 dark:border-neutral-800 pb-3">
+                <div>
+                  <span className="text-xs uppercase font-semibold tracking-wider text-neutral-500">Evaluation Score</span>
+                  <div className="flex items-baseline gap-2 mt-0.5">
+                    <span className="text-2xl font-black text-neutral-950 dark:text-white">{evaluation.score}</span>
+                    <span className="text-xs text-neutral-500">/ 100</span>
+                  </div>
+                </div>
+                <span
+                  className={`rounded-full px-3 py-1 text-xs font-bold tracking-wide uppercase ${
+                    evaluation.score >= 85
+                      ? "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300 border border-green-300 dark:border-green-800"
+                      : evaluation.score >= 70
+                        ? "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border border-blue-300 dark:border-blue-800"
+                        : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 dark:border-amber-800"
+                  }`}
+                >
+                  {evaluation.verdict}
+                </span>
+              </div>
+
+              {evaluation.strengths && evaluation.strengths.length > 0 && (
+                <div>
+                  <span className="text-xs font-bold text-green-700 dark:text-green-400 block mb-1">
+                    ✓ Strong Points Demonstrated:
+                  </span>
+                  <ul className="list-disc list-inside space-y-1 text-xs text-neutral-700 dark:text-neutral-300">
+                    {evaluation.strengths.map((s, idx) => (
+                      <li key={idx}>{s}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {evaluation.improvements && evaluation.improvements.length > 0 && (
+                <div>
+                  <span className="text-xs font-bold text-amber-700 dark:text-amber-400 block mb-1">
+                    💡 Areas for Growth & Missing Tradeoffs:
+                  </span>
+                  <ul className="list-disc list-inside space-y-1 text-xs text-neutral-700 dark:text-neutral-300">
+                    {evaluation.improvements.map((s, idx) => (
+                      <li key={idx}>{s}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {evaluation.model_answer && (
+                <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-3">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-500 block mb-1">
+                    Staff Engineer Model Answer:
+                  </span>
+                  <p className="text-xs leading-relaxed text-neutral-700 dark:text-neutral-300 font-mono">
+                    {evaluation.model_answer}
+                  </p>
+                </div>
+              )}
+
+              <Button
+                variant="secondary"
+                onClick={() => fetchQuestion(requirement)}
+                className="w-full justify-center"
+              >
+                <RotateCcw size={14} /> Practice Another Question for {requirement.name}
+              </Button>
+            </div>
+          )}
+
+          {/* Interactive Answer Input Form */}
+          {!loadingQuestion && !evaluation && questionData && (
+            <form onSubmit={handleSubmit} className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-neutral-700 dark:text-neutral-300 mb-1.5">
+                  Your Technical Defense & Explanation:
+                </label>
+                <textarea
+                  rows={4}
+                  value={answer}
+                  onChange={(e) => setAnswer(e.target.value)}
+                  placeholder="Explain why you architected it this way, what tradeoffs you weighed (performance vs simplicity vs safety), and how you'd scale it in production..."
+                  className="w-full rounded-xl border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-950 p-3 text-xs leading-relaxed text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
+
+              {error && (
+                <p className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1.5">
+                  <AlertCircle size={14} /> {error}
+                </p>
+              )}
+
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-[11px] text-neutral-400">
+                  {answer.trim().split(/\s+/).filter(Boolean).length} words typed
+                </span>
+                <div className="flex items-center gap-2">
+                  <Button type="button" variant="secondary" onClick={onClose}>
+                    Close
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={submitting || !answer.trim()}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold"
+                  >
+                    {submitting ? (
+                      <>
+                        <LoaderCircle size={15} className="animate-spin" /> Evaluating Answer…
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles size={15} /> Submit for Review
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </form>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -1268,7 +1624,7 @@ function LoginPage({
   theme,
   onToggleTheme,
 }: {
-  onSignIn: (profile: UserProfile) => void;
+  onSignIn: (profile: UserProfile, token?: string) => void;
   theme: "light" | "dark";
   onToggleTheme: () => void;
 }) {
@@ -1284,7 +1640,8 @@ function LoginPage({
     githubClientId: string;
     googleClientId: string;
     hasGithubSecret?: boolean;
-  }>({ githubClientId: "", googleClientId: "", hasGithubSecret: false });
+    hasGoogleClientId?: boolean;
+  }>({ githubClientId: "", googleClientId: "", hasGithubSecret: false, hasGoogleClientId: false });
 
   // GitHub modal state
   const [ghInput, setGhInput] = useState("Krish-bit-arch");
@@ -1309,9 +1666,16 @@ function LoginPage({
 
   // Handle OAuth code/token callbacks on mount
   useEffect(() => {
+    // 1. Check for query parameters (e.g. GitHub OAuth callback ?code=... or ?error=...)
     const urlParams = new URLSearchParams(window.location.search);
     const code = urlParams.get("code");
-    if (code) {
+    const queryError = urlParams.get("error");
+    const queryErrorDesc = urlParams.get("error_description");
+
+    if (queryError) {
+      setError(`GitHub OAuth notice: ${queryErrorDesc || queryError}`);
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (code) {
       setLoading("oauth");
       fetch("/api/auth/github", {
         method: "POST",
@@ -1321,7 +1685,7 @@ function LoginPage({
         .then((res) => res.json())
         .then((data) => {
           if (data.user) {
-            onSignIn(data.user);
+            onSignIn(data.user, data.token || data.jwt);
             window.history.replaceState({}, document.title, window.location.pathname);
           } else if (data.error) {
             setError(`GitHub authentication failed: ${data.error}`);
@@ -1331,10 +1695,20 @@ function LoginPage({
         .finally(() => setLoading(null));
     }
 
-    if (window.location.hash.includes("access_token=")) {
-      const hashParams = new URLSearchParams(window.location.hash.substring(1));
-      const access_token = hashParams.get("access_token");
-      if (access_token) {
+    // 2. Check for hash parameters (e.g. Google OAuth Implicit flow #access_token=... or #error=...)
+    const rawHash = window.location.hash.startsWith("#") ? window.location.hash.substring(1) : window.location.hash;
+    if (rawHash) {
+      const hashParams = new URLSearchParams(rawHash);
+      const hashError = hashParams.get("error");
+      const hashErrorDesc = hashParams.get("error_description");
+
+      if (hashError) {
+        setError(
+          `Google OAuth notice: ${hashErrorDesc || hashError}. Note: Ensure "${window.location.origin}" is added to Authorized JavaScript origins / redirect URIs in Google Cloud Console.`
+        );
+        window.history.replaceState({}, document.title, window.location.pathname);
+      } else if (hashParams.get("access_token")) {
+        const access_token = hashParams.get("access_token");
         setLoading("oauth");
         fetch("/api/auth/google", {
           method: "POST",
@@ -1344,7 +1718,26 @@ function LoginPage({
           .then((res) => res.json())
           .then((data) => {
             if (data.user) {
-              onSignIn(data.user);
+              onSignIn(data.user, data.token || data.jwt);
+              window.history.replaceState({}, document.title, window.location.pathname);
+            } else if (data.error) {
+              setError(`Google authentication failed: ${data.error}`);
+            }
+          })
+          .catch((err) => setError(`Google login error: ${err.message}`))
+          .finally(() => setLoading(null));
+      } else if (hashParams.get("id_token")) {
+        const id_token = hashParams.get("id_token");
+        setLoading("oauth");
+        fetch("/api/auth/google", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token: id_token }),
+        })
+          .then((res) => res.json())
+          .then((data) => {
+            if (data.user) {
+              onSignIn(data.user, data.token || data.jwt);
               window.history.replaceState({}, document.title, window.location.pathname);
             } else if (data.error) {
               setError(`Google authentication failed: ${data.error}`);
@@ -1357,15 +1750,27 @@ function LoginPage({
   }, [onSignIn]);
 
   const handleGithubClick = () => {
-    const clientId = oauthConfig.githubClientId || "Ov23liUHTE7FZx3g9OOa";
-    // Omit redirect_uri so GitHub uses the exact Authorization callback URL saved in your OAuth App
-    window.location.href = `https://github.com/login/oauth/authorize?client_id=${clientId}&scope=read:user,repo`;
+    if (oauthConfig.githubClientId) {
+      const clientId = oauthConfig.githubClientId;
+      window.location.href = `https://github.com/login/oauth/authorize?client_id=${encodeURIComponent(clientId)}&scope=read:user,repo`;
+    } else {
+      setActiveModal("github");
+    }
   };
 
   const handleGoogleClick = () => {
     if (oauthConfig.googleClientId) {
-      const redirectUri = encodeURIComponent(window.location.origin);
-      window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${oauthConfig.googleClientId}&redirect_uri=${redirectUri}&response_type=token&scope=openid%20email%20profile`;
+      // Prioritize port 3000 on localhost to match registered Google Cloud Console URIs (http://localhost:3000/ and http://127.0.0.1:3000/)
+      const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+      const redirectUri = isLocal
+        ? `${window.location.protocol}//${window.location.hostname}:3000/`
+        : window.location.origin + window.location.pathname;
+      const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(
+        oauthConfig.googleClientId
+      )}&redirect_uri=${encodeURIComponent(
+        redirectUri
+      )}&response_type=token&scope=openid%20email%20profile&prompt=select_account`;
+      window.location.href = googleAuthUrl;
     } else {
       setActiveModal("google");
     }
@@ -1381,9 +1786,10 @@ function LoginPage({
     setGhError("");
     try {
       const res = await fetch(`/api/user?github_username=${encodeURIComponent(handle)}`);
+      let profile: UserProfile;
       if (res.ok) {
         const data = await res.json();
-        const profile: UserProfile = {
+        profile = {
           name: data.name || data.login || handle,
           username: data.login || handle,
           email: data.email || `${data.login || handle}@users.noreply.github.com`,
@@ -1391,10 +1797,8 @@ function LoginPage({
           avatarUrl: data.avatar_url || `https://github.com/${handle}.png`,
           provider: "github",
         };
-        setActiveModal(null);
-        onSignIn(profile);
       } else {
-        const profile: UserProfile = {
+        profile = {
           name: handle,
           username: handle,
           email: `${handle}@users.noreply.github.com`,
@@ -1402,9 +1806,25 @@ function LoginPage({
           avatarUrl: `https://github.com/${handle}.png`,
           provider: "github",
         };
-        setActiveModal(null);
-        onSignIn(profile);
       }
+
+      // Request signed JWT session token from backend
+      try {
+        const sessionRes = await fetch("/api/auth/session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(profile),
+        });
+        if (sessionRes.ok) {
+          const sData = await sessionRes.json();
+          setActiveModal(null);
+          onSignIn(sData.user || profile, sData.token || sData.jwt);
+          return;
+        }
+      } catch {}
+
+      setActiveModal(null);
+      onSignIn(profile);
     } catch {
       const profile: UserProfile = {
         name: handle,
@@ -1447,12 +1867,28 @@ function LoginPage({
       provider: "google",
     };
 
+    // Request signed JWT session token from backend
+    try {
+      const sessionRes = await fetch("/api/auth/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(profile),
+      });
+      if (sessionRes.ok) {
+        const sData = await sessionRes.json();
+        setGoogleLoading(false);
+        setActiveModal(null);
+        onSignIn(sData.user || profile, sData.token || sData.jwt);
+        return;
+      }
+    } catch {}
+
     setGoogleLoading(false);
     setActiveModal(null);
     onSignIn(profile);
   };
 
-  const submit = (event: React.FormEvent) => {
+  const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!email.trim() || !password) {
       setError("Enter your email address and password.");
@@ -1469,23 +1905,37 @@ function LoginPage({
 
     setLoading("email");
     setError("");
-    setTimeout(() => {
-      setLoading(null);
-      const localPart = email.split("@")[0];
-      const formattedName = localPart
-        .replace(/[^a-zA-Z0-9]/g, " ")
-        .trim()
-        .replace(/\b\w/g, (l) => l.toUpperCase()) || "Developer";
-      const profile: UserProfile = {
-        name: formattedName,
-        username: localPart.toLowerCase().replace(/[^a-z0-9]/g, "") || "candidate",
-        email: email.trim(),
-        bio: "CommitCheck member",
-        avatarUrl: `https://avatar.vercel.sh/${encodeURIComponent(email)}`,
-        provider: "email",
-      };
-      onSignIn(profile);
-    }, 600);
+
+    const localPart = email.split("@")[0];
+    const formattedName = localPart
+      .replace(/[^a-zA-Z0-9]/g, " ")
+      .trim()
+      .replace(/\b\w/g, (l) => l.toUpperCase()) || "Developer";
+    const profile: UserProfile = {
+      name: formattedName,
+      username: localPart.toLowerCase().replace(/[^a-z0-9]/g, "") || "candidate",
+      email: email.trim(),
+      bio: "CommitCheck member",
+      avatarUrl: `https://avatar.vercel.sh/${encodeURIComponent(email)}`,
+      provider: "email",
+    };
+
+    try {
+      const sessionRes = await fetch("/api/auth/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(profile),
+      });
+      if (sessionRes.ok) {
+        const sData = await sessionRes.json();
+        setLoading(null);
+        onSignIn(sData.user || profile, sData.token || sData.jwt);
+        return;
+      }
+    } catch {}
+
+    setLoading(null);
+    onSignIn(profile);
   };
 
   return (
@@ -1544,19 +1994,27 @@ function LoginPage({
                 type="button"
                 onClick={handleGoogleClick}
                 disabled={loading === "oauth"}
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-neutral-700 bg-neutral-900 text-sm font-medium text-neutral-200 transition hover:border-neutral-500 hover:bg-neutral-800 disabled:opacity-60"
+                title={oauthConfig.googleClientId ? `Google OAuth configured (${oauthConfig.googleClientId.slice(0, 20)}...)` : "Google Sign-In"}
+                className="relative inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-neutral-700 bg-neutral-900 text-sm font-medium text-neutral-200 transition hover:border-neutral-500 hover:bg-neutral-800 disabled:opacity-60"
               >
                 <span className="flex size-4 items-center justify-center rounded-full bg-white text-[11px] font-bold text-neutral-950">G</span>
                 Google
+                {oauthConfig.googleClientId && (
+                  <span className="size-1.5 rounded-full bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.9)]" title="Live Google Client ID active" />
+                )}
               </button>
               <button
                 type="button"
                 onClick={handleGithubClick}
                 disabled={loading === "oauth"}
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-neutral-700 bg-neutral-900 text-sm font-medium text-neutral-200 transition hover:border-neutral-500 hover:bg-neutral-800 disabled:opacity-60"
+                title={oauthConfig.githubClientId ? `GitHub OAuth configured (${oauthConfig.githubClientId})` : "GitHub Sign-In"}
+                className="relative inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-neutral-700 bg-neutral-900 text-sm font-medium text-neutral-200 transition hover:border-neutral-500 hover:bg-neutral-800 disabled:opacity-60"
               >
                 <Code2 size={16} />
                 GitHub
+                {oauthConfig.githubClientId && (
+                  <span className="size-1.5 rounded-full bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.9)]" title="Live GitHub Client ID active" />
+                )}
               </button>
             </div>
 
@@ -1652,8 +2110,26 @@ function LoginPage({
               </button>
             </div>
 
+            {oauthConfig.githubClientId && (
+              <div className="mb-4 rounded-xl border border-neutral-700 bg-neutral-800/50 p-3">
+                <button
+                  type="button"
+                  onClick={handleGithubClick}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-white py-2.5 text-xs font-semibold text-neutral-950 transition hover:bg-neutral-200"
+                >
+                  <Code2 size={16} />
+                  Authorize with GitHub OAuth (Live)
+                </button>
+                <p className="mt-1.5 text-center text-[10px] text-neutral-400">
+                  Client ID: <span className="font-mono text-neutral-300">{oauthConfig.githubClientId}</span>
+                </p>
+              </div>
+            )}
+
             <div className="mb-4">
-              <label className="block text-xs font-medium text-neutral-300 mb-1.5">Enter GitHub username</label>
+              <label className="block text-xs font-medium text-neutral-300 mb-1.5">
+                {oauthConfig.githubClientId ? "Or enter GitHub username manually:" : "Enter GitHub username"}
+              </label>
               <input
                 type="text"
                 value={ghInput}
@@ -1722,6 +2198,28 @@ function LoginPage({
               <button onClick={() => setActiveModal(null)} className="rounded-md p-1.5 text-neutral-400 hover:bg-neutral-800 hover:text-white">
                 <X size={18} />
               </button>
+            </div>
+
+            {oauthConfig.googleClientId && (
+              <div className="mb-4 rounded-xl border border-neutral-700 bg-neutral-800/50 p-3">
+                <button
+                  type="button"
+                  onClick={handleGoogleClick}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-white py-2.5 text-xs font-semibold text-neutral-950 transition hover:bg-neutral-200"
+                >
+                  <span className="flex size-4 items-center justify-center rounded-full bg-neutral-950 text-[10px] font-bold text-white">G</span>
+                  Authorize with Google OAuth (Live)
+                </button>
+                <p className="mt-1.5 text-center text-[10px] text-neutral-400">
+                  Client ID: <span className="font-mono text-neutral-300">{oauthConfig.googleClientId.slice(0, 22)}...apps.googleusercontent.com</span>
+                </p>
+              </div>
+            )}
+
+            <div className="mb-2">
+              <p className="text-xs font-medium text-neutral-400">
+                {oauthConfig.googleClientId ? "Or choose developer test identity (1-Click bypass):" : "Choose developer test identity:"}
+              </p>
             </div>
 
             <div className="mb-4 space-y-2">
@@ -1838,8 +2336,50 @@ export default function App() {
   });
 
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    return localStorage.getItem("commitcheck-auth") === "true" && localStorage.getItem("commitcheck-user") !== null;
+    return Boolean(
+      localStorage.getItem("commitcheck-jwt") ||
+        (localStorage.getItem("commitcheck-auth") === "true" && localStorage.getItem("commitcheck-user") !== null)
+    );
   });
+
+  // Verify JWT session on app mount to persist login after closing the browser
+  useEffect(() => {
+    const savedToken = localStorage.getItem("commitcheck-jwt");
+    if (!savedToken) {
+      if (localStorage.getItem("commitcheck-auth") !== "true") {
+        setIsAuthenticated(false);
+        setCurrentUser(null);
+      }
+      return;
+    }
+
+    fetch("/api/auth/me", {
+      headers: { Authorization: `Bearer ${savedToken}` },
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && data.valid && data.user) {
+          setCurrentUser(data.user);
+          localStorage.setItem("commitcheck-user", JSON.stringify(data.user));
+          localStorage.setItem("commitcheck-auth", "true");
+          setIsAuthenticated(true);
+          if (data.user.username) {
+            setCurrentHandle(data.user.username);
+          }
+        } else {
+          // Token is invalid or expired
+          console.warn("JWT session expired or invalid. Re-authenticating.");
+          localStorage.removeItem("commitcheck-jwt");
+          localStorage.removeItem("commitcheck-user");
+          localStorage.setItem("commitcheck-auth", "false");
+          setIsAuthenticated(false);
+          setCurrentUser(null);
+        }
+      })
+      .catch((err) => {
+        console.warn("JWT session validation network error:", err);
+      });
+  }, []);
 
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     const savedTheme = localStorage.getItem("commitcheck-theme");
@@ -1860,6 +2400,7 @@ export default function App() {
   const [logs, setLogs] = useState(initialLogs);
   const [resetSignal, setResetSignal] = useState(0);
   const [reportStatus, setReportStatus] = useState<"idle" | "generating" | "done">("idle");
+  const [interviewReq, setInterviewReq] = useState<Requirement | null>(null);
 
   const handleUpdateUser = (updated: UserProfile) => {
     setCurrentUser(updated);
@@ -1869,10 +2410,13 @@ export default function App() {
     }
   };
 
-  const handleSignIn = (profile: UserProfile) => {
+  const handleSignIn = (profile: UserProfile, token?: string) => {
     setCurrentUser(profile);
     localStorage.setItem("commitcheck-user", JSON.stringify(profile));
     localStorage.setItem("commitcheck-auth", "true");
+    if (token) {
+      localStorage.setItem("commitcheck-jwt", token);
+    }
     setIsAuthenticated(true);
     if (profile.username) {
       setCurrentHandle(profile.username);
@@ -1880,8 +2424,11 @@ export default function App() {
   };
 
   const handleSignOut = () => {
+    localStorage.removeItem("commitcheck-jwt");
+    localStorage.removeItem("commitcheck-user");
     localStorage.setItem("commitcheck-auth", "false");
     setIsAuthenticated(false);
+    setCurrentUser(null);
     setAccountOpen(false);
     setDialog(null);
   };
@@ -2130,6 +2677,7 @@ export default function App() {
                     onView={() => setDialog("evidence")}
                     onDownload={downloadEvidenceReport}
                     reportStatus={reportStatus}
+                    onStartInterview={setInterviewReq}
                   />
                 </div>
                 <WebhookPanel complete={webhookComplete} processing={processing} logs={logs} simulate={simulate} reset={reset} />
@@ -2148,6 +2696,7 @@ export default function App() {
                     onView={() => setDialog("evidence")}
                     onDownload={downloadEvidenceReport}
                     reportStatus={reportStatus}
+                    onStartInterview={setInterviewReq}
                   />
                 </div>
               </>
@@ -2170,6 +2719,7 @@ export default function App() {
                     onView={() => setDialog("evidence")}
                     onDownload={downloadEvidenceReport}
                     reportStatus={reportStatus}
+                    onStartInterview={setInterviewReq}
                   />
                 </div>
               </>
@@ -2205,6 +2755,7 @@ export default function App() {
                     onView={() => setDialog("evidence")}
                     onDownload={downloadEvidenceReport}
                     reportStatus={reportStatus}
+                    onStartInterview={setInterviewReq}
                   />
                 </div>
               </>
@@ -2219,6 +2770,7 @@ export default function App() {
                   onView={() => setDialog("evidence")}
                   onDownload={downloadEvidenceReport}
                   reportStatus={reportStatus}
+                  onStartInterview={setInterviewReq}
                 />
               </div>
             )}
@@ -2258,6 +2810,12 @@ export default function App() {
           onUpdateUser={handleUpdateUser}
         />
       )}
+      <InterviewDrillModal
+        isOpen={Boolean(interviewReq)}
+        onClose={() => setInterviewReq(null)}
+        requirement={interviewReq}
+        targetRole={currentRole}
+      />
     </div>
   );
 }
